@@ -1,0 +1,1 @@
+producto-<?php echo e($producto->id); ?><?php /**PATH C:\MisLaravel\pos\storage\framework\views/6fa02b5a8a4129a037240449d6692822.blade.php ENDPATH**/ ?>
