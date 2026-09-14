@@ -27,6 +27,9 @@ yarn-error.log
 # NativePHP
 /dist
 /.native
+/nativephp
+# .env de la app de escritorio: lleva la APP_KEY (se versiona solo el .example)
+.env.escritorio
 
 # Generados en runtime: logs, sesiones, vistas compiladas, cache y respaldos
 /storage/app/*

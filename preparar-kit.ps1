@@ -32,7 +32,8 @@ Write-Host 'Copiando (puede tardar, son ~110 MB con las dependencias)...'
 # Se copia con vendor y node_modules para que el kit funcione sin internet en la caja
 # destino. Lo que NO viaja es todo lo que identifica a ESTA instalación.
 $excluirCarpetas = @('.git', "$Origen\storage\logs", "$Origen\storage\app", "$Origen\storage\framework")
-$excluirArchivos = @('.env', '.pos-info', 'database.sqlite', 'iniciar-*.bat')
+# .env.escritorio lleva la APP_KEY de la app de escritorio: tampoco viaja.
+$excluirArchivos = @('.env', '.env.escritorio', '.pos-info', 'database.sqlite', 'iniciar-*.bat')
 
 $argumentos = @($Origen, $Destino, '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/NP', '/R:1', '/W:1')
 $argumentos += '/XD'
@@ -58,7 +59,7 @@ foreach ($d in @(
 }
 
 # Red de seguridad: si alguno de estos quedó, el kit no sirve.
-$prohibidos = @('.env', '.pos-info', 'database\database.sqlite')
+$prohibidos = @('.env', '.env.escritorio', '.pos-info', 'database\database.sqlite')
 $encontrados = $prohibidos | Where-Object { Test-Path (Join-Path $Destino $_) }
 
 if ($encontrados) {

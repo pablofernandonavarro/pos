@@ -2,46 +2,49 @@
 
 namespace App\Providers;
 
-use Illuminate\Support\ServiceProvider;
-use Native\Laravel\Facades\MenuBar;
-use Native\Laravel\Facades\Window;
-use Native\Laravel\Menu\Menu;
+use Native\Desktop\Contracts\ProvidesPhpIni;
+use Native\Desktop\Facades\Menu;
+use Native\Desktop\Facades\Window;
 
-class NativeAppServiceProvider extends ServiceProvider
+class NativeAppServiceProvider implements ProvidesPhpIni
 {
     public function boot(): void
     {
-        // Configurar ventana principal
+        Menu::create(
+            Menu::app(),
+            Menu::make(
+                Menu::route('pos.sync', 'Sincronizar', 'CmdOrCtrl+R'),
+                Menu::separator(),
+                Menu::route('pos.configuracion', 'Configuración', 'CmdOrCtrl+,'),
+                Menu::separator(),
+                Menu::quit('Salir'),
+            )->label('Archivo'),
+            Menu::make(
+                Menu::route('pos.venta', 'Nueva venta', 'CmdOrCtrl+N'),
+                Menu::route('pos.ventas', 'Ventas y devoluciones', 'CmdOrCtrl+D'),
+                Menu::route('pos.caja', 'Caja y cierre Z', 'CmdOrCtrl+K'),
+                Menu::route('pos.remitos', 'Remitos por recibir'),
+                Menu::separator(),
+                Menu::fullscreen(),
+                Menu::devTools(),
+            )->label('Ver'),
+        );
+
         Window::open()
-            ->title(config('app.name', 'POS System'))
+            ->title(config('app.name', 'POS'))
             ->width(1280)
             ->height(900)
             ->minWidth(1024)
             ->minHeight(768)
-            ->resizable(true)
             ->rememberState();
 
-        // Menú de la aplicación
-        Menu::new()
-            ->appMenu()
-            ->submenu('Archivo', [
-                Menu::link('🔄 Sincronizar', route('pos.sync'))->key('r'),
-                Menu::separator(),
-                Menu::link('⚙️ Configuración', route('pos.configuracion'))->key(','),
-                Menu::separator(),
-                Menu::quit(),
-            ])
-            ->submenu('Ver', [
-                Menu::link('🛒 Nueva Venta', route('pos.venta'))->key('n'),
-                Menu::separator(),
-                Menu::fullscreen(),
-                Menu::devtools(),
-            ])
-            ->submenu('Ayuda', [
-                Menu::link('📚 Documentación', 'https://github.com/tu-repo/pos-docs'),
-                Menu::separator(),
-                Menu::about(),
-            ])
-            ->register();
+        // No hace falta levantar un schedule:work: NativePHP ya corre `schedule:run` cada
+        // minuto desde el lado de Electron, y la cola arranca sola (config queue_workers).
+        // Agregar otro scheduler acá duplicaba cada tarea programada.
+    }
+
+    public function phpIni(): array
+    {
+        return [];
     }
 }
