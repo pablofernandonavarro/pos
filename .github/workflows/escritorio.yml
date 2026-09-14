@@ -32,6 +32,11 @@ jobs:
       run:
         shell: bash
     steps:
+      # El runner Windows convierte a CRLF al hacer checkout: cambia el texto que el PHP
+      # arma adentro (script del cajón) y el código no es el mismo que en el repo.
+      - name: Checkout sin convertir fines de línea
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
 
       - name: Versión
