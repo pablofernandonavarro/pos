@@ -128,6 +128,7 @@ class ManagerApiService
                     'success' => true,
                     'data' => $response->json('data', []),
                     'total' => $response->json('total', 0),
+                    'synced_at' => $response->json('synced_at'),
                 ];
             }
 

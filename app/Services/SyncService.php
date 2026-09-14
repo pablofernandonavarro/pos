@@ -16,6 +16,7 @@ use App\Models\Producto;
 use App\Models\PromocionBancaria;
 use App\Models\TurnoCaja;
 use App\Models\Venta;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -93,11 +94,15 @@ class SyncService
     }
 
     /**
-     * Sincroniza productos desde el manager.
+     * Sincroniza productos desde el manager: el catálogo entero la primera vez y después solo
+     * lo que cambió desde la última (updated_since). Corre cada 5 minutos (`pos:sync
+     * --productos`): sin eso un producto dado de alta en el Manager (a mano o por Excel) no
+     * llegaba a la caja hasta un "Sincronizar" manual.
      */
     public function syncProductos(): array
     {
         $ultimaSync = Configuracion::get('ultima_sincronizacion_productos');
+        $pedidoAt = now();
 
         $response = $this->managerApi->syncProductos($ultimaSync);
 
@@ -156,7 +161,12 @@ class SyncService
             $sincronizados++;
         }
 
-        Configuracion::set('ultima_sincronizacion_productos', now()->toIso8601String());
+        // La marca se compara con el updated_at del Manager, así que se usa su reloj
+        // (synced_at) y no el de la caja. Con 2 minutos de solape: el Manager arma synced_at
+        // después de consultar, y un producto guardado en ese medio quedaría afuera para
+        // siempre. Volver a bajar un par de productos no cambia nada.
+        $marca = ! empty($response['synced_at']) ? Carbon::parse($response['synced_at']) : $pedidoAt;
+        Configuracion::set('ultima_sincronizacion_productos', $marca->subMinutes(2)->toIso8601String());
 
         return [
             'success' => true,

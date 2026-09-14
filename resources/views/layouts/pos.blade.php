@@ -59,7 +59,7 @@
                     @endif
 
                     <!-- Reloj -->
-                    <div class="text-sm text-slate-400" x-data="{ time: '' }" x-init="setInterval(() => time = new Date().toLocaleTimeString('es-AR'), 1000)" x-text="time"></div>
+                    <div class="text-sm text-slate-400" x-data="{ time: '' }" x-init="setInterval(() => time = new Date().toLocaleTimeString('es-AR', { hour12: false }), 1000)" x-text="time"></div>
 
                     <!-- Menú de opciones -->
                     <div x-data="{ open: false }" class="relative">

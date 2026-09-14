@@ -10,7 +10,7 @@ use Illuminate\Console\Command;
 
 class SyncCommand extends Command
 {
-    protected $signature = 'pos:sync {--pull : Solo traer datos del Manager} {--push : Solo enviar datos al Manager} {--stock : Solo traer stock (liviano, apto para correr seguido)}';
+    protected $signature = 'pos:sync {--pull : Solo traer datos del Manager} {--push : Solo enviar datos al Manager} {--stock : Solo traer stock (liviano, apto para correr seguido)} {--productos : Solo productos nuevos o modificados desde la última vez}';
 
     protected $description = 'Sincroniza el POS con el Manager';
 
@@ -22,6 +22,20 @@ class SyncCommand extends Command
 
         if ($stockOnly) {
             return $this->syncStock($syncService);
+        }
+
+        if ($this->option('productos')) {
+            $resultado = $syncService->syncProductos();
+
+            if (! $resultado['success']) {
+                $this->error('❌ Error al traer productos: '.($resultado['error'] ?? 'desconocido'));
+
+                return self::FAILURE;
+            }
+
+            $this->info("🏷️  Productos nuevos o modificados: {$resultado['cantidad']}");
+
+            return self::SUCCESS;
         }
 
         $this->info('🔄 Iniciando sincronización...');

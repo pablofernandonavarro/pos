@@ -108,6 +108,42 @@ class SyncStockYCatalogoTest extends TestCase
         $this->assertSame('Nuevo', Producto::find(999)?->nombre);
     }
 
+    public function test_productos_nuevos_llegan_solos_con_el_delta_y_la_marca_usa_el_reloj_del_manager(): void
+    {
+        Configuracion::set('ultima_sincronizacion_productos', '2026-09-14T20:00:00+00:00');
+        Http::fake(['*/sync/productos*' => Http::response([
+            'data' => [['id' => 5001, 'nombre' => 'Importado por Excel', 'codigo_interno' => 'PRB-S00001', 'precio' => 2500, 'es_vendible' => true]],
+            'synced_at' => '2026-09-14T21:10:00+00:00',
+        ])]);
+
+        $this->artisan('pos:sync --productos')->assertSuccessful();
+
+        Http::assertSent(fn (Request $r) => str_contains($r->url(), 'sync/productos') && $r['updated_since'] === '2026-09-14T20:00:00+00:00');
+        $this->assertSame('Importado por Excel', Producto::find(5001)?->nombre);
+        $this->assertSame(0, Producto::find(5001)->stock, 'El stock lo trae el sync de stock');
+        // Reloj del Manager menos 2 minutos de solape, no la hora de la caja.
+        $this->assertSame('2026-09-14T21:08:00+00:00', Configuracion::get('ultima_sincronizacion_productos'));
+    }
+
+    public function test_productos_sin_conexion_no_mueve_la_marca(): void
+    {
+        Configuracion::set('ultima_sincronizacion_productos', '2026-09-14T20:00:00+00:00');
+        Http::fake(fn () => throw new ConnectionException('sin red'));
+
+        $this->artisan('pos:sync --productos')->assertFailed();
+
+        $this->assertSame('2026-09-14T20:00:00+00:00', Configuracion::get('ultima_sincronizacion_productos'));
+    }
+
+    public function test_los_productos_se_sincronizan_solos_cada_cinco_minutos(): void
+    {
+        $evento = collect(app(\Illuminate\Console\Scheduling\Schedule::class)->events())
+            ->first(fn ($e) => str_contains($e->command, 'pos:sync --productos'));
+
+        $this->assertNotNull($evento, 'Falta la tarea programada de productos');
+        $this->assertSame('*/5 * * * *', $evento->expression);
+    }
+
     public function test_las_llamadas_al_manager_informan_version_y_tipo_de_instalacion(): void
     {
         Http::fake(['*' => Http::response(['data' => []])]);

@@ -22,6 +22,14 @@ Schedule::command('pos:sync --stock')
     ->withoutOverlapping(10)
     ->runInBackground();
 
+// Productos nuevos o modificados en el Manager (alta a mano o importación Excel): solo el
+// delta desde la última vez. Sin esto no llegaban hasta un "Sincronizar" manual. No toca
+// precios por lista (syncPrecios trunca la tabla): los productos nuevos usan el factor.
+Schedule::command('pos:sync --productos')
+    ->everyFiveMinutes()
+    ->withoutOverlapping(15)
+    ->runInBackground();
+
 // Canal de órdenes: permite reparar esta caja desde el Manager sin ir físicamente.
 Schedule::command('pos:comandos')
     ->everyMinute()
