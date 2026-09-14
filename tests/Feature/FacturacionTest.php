@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Contracts\ImpresoraTickets;
 use App\Exceptions\CajaException;
 use App\Livewire\Pos\Venta as PantallaVenta;
 use App\Livewire\Pos\Ventas as PantallaVentas;
@@ -12,6 +13,7 @@ use App\Models\Venta;
 use App\Services\CajaService;
 use App\Services\DevolucionService;
 use App\Services\FacturacionService;
+use App\Services\Impresion\ImpresoraNavegador;
 use App\Services\SyncService;
 use App\Services\TicketService;
 use App\Services\VentaService;
@@ -273,6 +275,9 @@ class FacturacionTest extends TestCase
     {
         $this->activarFacturacion();
         $venta = $this->vender();
+        // Fija el tipo de impresión: con NativePHP instalado (compilación de escritorio) el
+        // botón cambia de texto.
+        $this->app->instance(ImpresoraTickets::class, new ImpresoraNavegador);
 
         Http::fake(['manager.fake/api/v1/pos/facturas' => fn (Request $r) => Http::response([
             'venta' => ['uuid' => $r['uuid'], 'status' => 'creada', 'venta_id' => 1],
