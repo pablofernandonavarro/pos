@@ -3,11 +3,14 @@
 namespace App\Livewire\Pos;
 
 use App\Exceptions\CajaException;
+use App\Models\Cliente;
 use App\Models\TurnoCaja;
 use App\Contracts\ImpresoraTickets;
 use App\Services\CajaService;
+use App\Services\CuentaCorrienteService;
 use App\Services\TicketService;
 use App\Support\Dinero;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 /**
@@ -34,6 +37,62 @@ class Caja extends Component
 
     /** Turno recién cerrado, para ofrecer imprimir el Z. */
     public ?int $cerradoId = null;
+
+    // --- Cobro de cuenta corriente ---
+    public string $clienteBusquedaCobro = '';
+
+    #[Locked]
+    public ?int $clienteCobroId = null;
+
+    public string $cobroMonto = '';
+
+    public string $cobroMedio = 'efectivo';
+
+    #[Locked]
+    public ?int $ultimoCobroId = null;
+
+    public function elegirClienteCobro(int $id): void
+    {
+        $this->limpiar();
+        $this->clienteCobroId = Cliente::whereKey($id)->value('id');
+        $this->reset(['clienteBusquedaCobro', 'cobroMonto', 'cobroMedio']);
+    }
+
+    public function quitarClienteCobro(): void
+    {
+        $this->clienteCobroId = null;
+        $this->reset(['clienteBusquedaCobro', 'cobroMonto', 'cobroMedio']);
+    }
+
+    public function cobrarCuenta(CajaService $caja, CuentaCorrienteService $cuentas, TicketService $tickets): void
+    {
+        $this->limpiar();
+
+        $turno = $caja->turnoAbierto();
+        $cliente = $this->clienteCobroId ? Cliente::find($this->clienteCobroId) : null;
+
+        if (! $turno || ! $cliente) {
+            $this->error = ! $turno ? 'La caja está cerrada.' : 'Elegí el cliente.';
+
+            return;
+        }
+
+        try {
+            $cobro = $cuentas->cobrar($cliente, $this->cobroMonto === '' ? 0 : $this->cobroMonto, $this->cobroMedio, $turno);
+        } catch (CajaException $e) {
+            $this->error = $e->getMessage();
+
+            return;
+        }
+
+        $this->ultimoCobroId = $cobro->id;
+        $this->exito = "Cobro {$cobro->numero}: ".Dinero::formato($cobro->importe)." de {$cliente->nombre}. Debe ".Dinero::formato(Dinero::pesos($cuentas->saldoCentavos($cliente))).'.';
+        $this->reset(['cobroMonto', 'cobroMedio']);
+
+        if ($tickets->imprimeAutomatico() && ($motivo = $tickets->imprimirCobro($cobro)) !== null) {
+            $this->error = "No se imprimió el recibo: {$motivo}";
+        }
+    }
 
     public function registrarMovimiento(CajaService $caja): void
     {
@@ -136,10 +195,15 @@ class Caja extends Component
     public function render()
     {
         $caja = app(CajaService::class);
+        $cuentas = app(CuentaCorrienteService::class);
         $turno = $caja->turnoAbierto();
         $resumen = $turno ? $caja->resumen($turno) : null;
+        $clienteCobro = $this->clienteCobroId ? Cliente::find($this->clienteCobroId) : null;
 
         return view('livewire.pos.caja', [
+            'clienteCobro' => $clienteCobro,
+            'saldoCobro' => $clienteCobro ? Dinero::pesos($cuentas->saldoCentavos($clienteCobro)) : 0,
+            'resultadosCobro' => $clienteCobro ? collect() : $cuentas->buscar($this->clienteBusquedaCobro),
             'turno' => $turno,
             'resumen' => $resumen,
             'imprimeDirecto' => app(ImpresoraTickets::class)->puedeImprimirDirecto(),

@@ -6,12 +6,14 @@ use App\Contracts\ImpresoraTickets;
 use App\Exceptions\CajaException;
 use App\Jobs\SincronizarPendientes;
 use App\Models\Cajero;
+use App\Models\Cliente;
 use App\Models\ListaPrecio;
 use App\Models\PagoVenta;
 use App\Models\Producto;
 use App\Models\PromocionBancaria;
 use App\Services\AutorizacionService;
 use App\Services\CajaService;
+use App\Services\CuentaCorrienteService;
 use App\Services\FacturacionService;
 use App\Services\TicketService;
 use App\Services\VentaService;
@@ -51,6 +53,12 @@ class Venta extends Component
 
     /** Condición frente al IVA del cliente (código de AFIP). 5 = consumidor final. */
     public string $clienteCondicionIva = '5';
+
+    public string $clienteBusqueda = '';
+
+    /** Cliente del padrón. Con él los datos de factura salen de su ficha y se puede vender a cuenta. */
+    #[Locked]
+    public ?int $clienteId = null;
 
     public array $resultadosBusqueda = [];
 
@@ -394,9 +402,45 @@ class Venta extends Component
         }
     }
 
+    public function elegirCliente(int $id): void
+    {
+        $cliente = Cliente::find($id);
+
+        if (! $cliente) {
+            return;
+        }
+
+        $this->clienteId = $cliente->id;
+        $this->clienteNombre = $cliente->nombre;
+        $this->clienteDocumento = (string) $cliente->documentoFormateado();
+        $this->clienteCondicionIva = (string) $cliente->condicion_iva;
+        $this->clienteBusqueda = '';
+    }
+
+    public function quitarCliente(): void
+    {
+        if ($this->pagos !== [] && collect($this->pagos)->contains(fn ($p) => ($p['calculo']['medio'] ?? null) === 'cuenta_corriente')) {
+            $this->error = 'Quitá el pago a cuenta corriente antes de cambiar el cliente.';
+
+            return;
+        }
+
+        $this->reset(['clienteId', 'clienteNombre', 'clienteDocumento', 'clienteCondicionIva', 'clienteBusqueda']);
+
+        if ($this->pagoMedio === 'cuenta_corriente') {
+            $this->pagoMedio = 'efectivo';
+        }
+    }
+
     public function elegirMedio(string $medio): void
     {
         if (! array_key_exists($medio, PagoVenta::MEDIOS)) {
+            return;
+        }
+
+        if ($medio === 'cuenta_corriente' && ! ($this->clienteId && Cliente::whereKey($this->clienteId)->where('cuenta_corriente', true)->exists())) {
+            $this->error = 'Para vender a cuenta elegí un cliente con cuenta corriente.';
+
             return;
         }
 
@@ -468,7 +512,7 @@ class Venta extends Component
                 $this->itemsParaServicio(),
                 array_map(fn ($p) => (array) ($p['entrada'] ?? []), $this->pagos),
                 $this->listaId,
-                ['nombre' => $this->clienteNombre, 'documento' => $this->clienteDocumento, 'condicion_iva' => $this->clienteCondicionIva],
+                ['nombre' => $this->clienteNombre, 'documento' => $this->clienteDocumento, 'condicion_iva' => $this->clienteCondicionIva, 'cliente_id' => $this->clienteId],
                 Dinero::pesos($this->descuentoManualCentavos),
                 $this->descuentoAutorizadoPorId ? Cajero::find($this->descuentoAutorizadoPorId) : null
             );
@@ -515,7 +559,7 @@ class Venta extends Component
 
     public function resetearVenta(): void
     {
-        $this->reset(['carrito', 'subtotal', 'total', 'clienteNombre', 'clienteDocumento', 'clienteCondicionIva', 'busqueda', 'resultadosBusqueda', 'cobrando', 'pagos']);
+        $this->reset(['carrito', 'subtotal', 'total', 'clienteNombre', 'clienteDocumento', 'clienteCondicionIva', 'clienteBusqueda', 'clienteId', 'busqueda', 'resultadosBusqueda', 'cobrando', 'pagos']);
         $this->quitarDescuento();
         $this->resetFormularioPago();
     }
@@ -591,6 +635,10 @@ class Venta extends Component
             }
         }
 
+        $cuentas = app(CuentaCorrienteService::class);
+        $cliente = $this->clienteId ? Cliente::find($this->clienteId) : null;
+        $disponible = $cliente?->cuenta_corriente ? $cuentas->disponibleCentavos($cliente) : null;
+
         return view('livewire.pos.venta', [
             'turno' => $turno,
             'cajeros' => $turno ? collect() : Cajero::orderBy('nombre')->get(['id', 'nombre', 'rol']),
@@ -604,6 +652,10 @@ class Venta extends Component
             'bancosConocidos' => PromocionBancaria::whereNotNull('banco')->distinct()->orderBy('banco')->pluck('banco'),
             'descuentoTotal' => Dinero::pesos(array_sum(array_map(fn ($p) => (int) ($p['calculo']['descuento'] ?? 0), $this->pagos))),
             'letraFactura' => FacturacionService::letraPara((int) $this->clienteCondicionIva),
+            'clienteElegido' => $cliente,
+            'saldoCliente' => $cliente ? Dinero::pesos($cuentas->saldoCentavos($cliente)) : null,
+            'disponibleCliente' => $disponible === null ? null : Dinero::pesos($disponible),
+            'resultadosClientes' => $cliente ? collect() : $cuentas->buscar($this->clienteBusqueda, 6),
         ])->layout('layouts.pos');
     }
 }

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Exceptions\CajaException;
 use App\Jobs\SincronizarPendientes;
+use App\Models\CobroCuentaCorriente;
 use App\Models\MovimientoCaja;
 use App\Models\PagoVenta;
 use App\Models\TurnoCaja;
@@ -160,11 +161,21 @@ class CajaService
         $devueltoTotal = $devoluciones->sum(fn ($d) => Dinero::centavos($d->total));
         $devueltoEfectivo = $devoluciones->where('reintegro', 'efectivo')->sum(fn ($d) => Dinero::centavos($d->total));
 
+        // Cobros de deudas de cuenta corriente: no son ventas del turno, pero la plata entra.
+        $cobros = CobroCuentaCorriente::where('turno_caja_id', $turno->id)->orderBy('id')->get();
+        $cobrosPorMedio = [];
+
+        foreach ($cobros as $cobro) {
+            $cobrosPorMedio[$cobro->medio] = ($cobrosPorMedio[$cobro->medio] ?? 0) + Dinero::centavos($cobro->importe);
+        }
+
+        $cobrosEfectivo = $cobrosPorMedio['efectivo'] ?? 0;
+
         $efectivoVentas = $porMedio['efectivo'] ?? 0;
         $ingresos = $sumaMovimientos('ingreso');
         $retiros = $sumaMovimientos('retiro');
         $gastos = $sumaMovimientos('gasto');
-        $esperado = Dinero::centavos($turno->fondo_inicial) + $efectivoVentas + $ingresos - $retiros - $gastos - $devueltoEfectivo;
+        $esperado = Dinero::centavos($turno->fondo_inicial) + $efectivoVentas + $cobrosEfectivo + $ingresos - $retiros - $gastos - $devueltoEfectivo;
 
         $pesos = fn (int $c) => Dinero::pesos($c);
 
@@ -203,11 +214,23 @@ class CajaService
                 ])->all(),
             ],
             'por_medio' => array_map($pesos, $porMedio),
+            'cuenta_corriente' => [
+                'ventas' => $pesos($porMedio['cuenta_corriente'] ?? 0),
+                'cobros' => $pesos(array_sum($cobrosPorMedio)),
+                'cobros_por_medio' => array_map($pesos, $cobrosPorMedio),
+                'detalle' => $cobros->map(fn (CobroCuentaCorriente $c) => [
+                    'numero' => $c->numero,
+                    'cliente' => $c->cliente_nombre,
+                    'medio' => $c->medio,
+                    'importe' => (float) $c->importe,
+                ])->all(),
+            ],
             'tarjetas' => array_values(array_map(fn ($t) => [...$t, 'importe' => $pesos($t['importe'])], $tarjetas)),
             'promociones' => array_values(array_map(fn ($p) => [...$p, 'descuento' => $pesos($p['descuento'])], $promociones)),
             'efectivo' => [
                 'fondo_inicial' => $pesos(Dinero::centavos($turno->fondo_inicial)),
                 'ventas' => $pesos($efectivoVentas),
+                'cobros_cuenta_corriente' => $pesos($cobrosEfectivo),
                 'ingresos' => $pesos($ingresos),
                 'retiros' => $pesos($retiros),
                 'gastos' => $pesos($gastos),

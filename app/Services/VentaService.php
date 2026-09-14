@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Exceptions\CajaException;
 use App\Models\Cajero;
+use App\Models\Cliente;
 use App\Models\Configuracion;
 use App\Models\DetalleVenta;
 use App\Models\MovimientoStock;
@@ -24,7 +25,8 @@ use Illuminate\Support\Facades\DB;
 class VentaService
 {
     public function __construct(
-        private readonly CajaService $caja
+        private readonly CajaService $caja,
+        private readonly CuentaCorrienteService $cuentas,
     ) {
     }
 
@@ -156,6 +158,23 @@ class VentaService
 
         // Con facturación activa toda venta lleva factura (consumidor final si no hay datos),
         // y el cliente se valida antes de cobrar.
+        // Cliente del padrón: sus datos mandan sobre lo tipeado (nombre, documento, IVA).
+        $clienteRegistrado = null;
+
+        if (! empty($cliente['cliente_id'])) {
+            $clienteRegistrado = Cliente::find((int) $cliente['cliente_id']);
+
+            if (! $clienteRegistrado) {
+                throw new CajaException('El cliente elegido ya no está en la lista. Buscalo de nuevo.');
+            }
+
+            $cliente = [
+                'nombre' => $clienteRegistrado->nombre,
+                'documento' => $clienteRegistrado->documento,
+                'condicion_iva' => $clienteRegistrado->condicion_iva,
+            ];
+        }
+
         $facturar = FacturacionService::activa();
         $receptor = $facturar ? FacturacionService::receptor($cliente) : null;
 
@@ -167,7 +186,7 @@ class VentaService
             throw new CajaException('Falta registrar el cobro.');
         }
 
-        return DB::transaction(function () use ($turno, $items, $pagos, $listaId, $cliente, $descuentoManual, $autorizaDescuento, $facturar, $receptor) {
+        return DB::transaction(function () use ($turno, $items, $pagos, $listaId, $cliente, $descuentoManual, $autorizaDescuento, $facturar, $receptor, $clienteRegistrado) {
             $lineas = $this->armarLineas($items, $listaId);
             $subtotal = array_sum(array_column($lineas, 'subtotal'));
             $manual = $this->validarDescuentoManual($subtotal, $descuentoManual, $autorizaDescuento);
@@ -183,6 +202,9 @@ class VentaService
                     ? "El cobro no cubre el total: faltan {$diferencia}."
                     : "El cobro supera el total por {$diferencia}.");
             }
+
+            $aCuenta = array_sum(array_map(fn ($p) => $p['medio'] === 'cuenta_corriente' ? $p['importe'] : 0, $pagosCalculados));
+            $this->cuentas->validarVentaACuenta($clienteRegistrado, $aCuenta);
 
             $descuento = $manual + array_sum(array_column($pagosCalculados, 'descuento'));
             $medios = array_unique(array_column($pagosCalculados, 'medio'));
@@ -201,6 +223,7 @@ class VentaService
                 'metodo_pago' => count($medios) === 1 ? reset($medios) : 'mixto',
                 'cliente_nombre' => ($n = trim((string) ($cliente['nombre'] ?? ''))) === '' ? null : mb_substr($n, 0, 150),
                 'cliente_documento' => ($d = trim((string) ($cliente['documento'] ?? ''))) === '' ? null : mb_substr($d, 0, 30),
+                'cliente_id' => $clienteRegistrado?->id,
                 'facturar' => $facturar,
                 'receptor_condicion_iva' => $receptor['condicion_iva'] ?? null,
                 'receptor_doc_tipo' => $receptor['doc_tipo'] ?? null,

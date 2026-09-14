@@ -40,13 +40,14 @@ class SincronizarPendientes implements ShouldBeUnique, ShouldQueue
         // Después de las ventas: devoluciones y cierres Z las referencian.
         $devoluciones = $sync->pushDevoluciones();
         $turnos = $sync->pushTurnos();
+        $cobros = $sync->pushCobrosCuentaCorriente();
 
         // No es un envío: si falla, lo retoma el sync de cada minuto sin reintentar el push.
         $facturacion->actualizarPendientes();
 
         // Los servicios devuelven ['success' => false] en vez de lanzar excepción, así que
         // hay que fallar a mano para que la cola reintente.
-        $resultados = [$ventas, $movimientos, $devoluciones, $turnos];
+        $resultados = [$ventas, $movimientos, $devoluciones, $turnos, $cobros];
 
         if (collect($resultados)->contains(fn ($r) => ! $r['success'])) {
             $error = collect($resultados)->firstWhere('success', false)['error'] ?? 'Error desconocido';

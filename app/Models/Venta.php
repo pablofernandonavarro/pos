@@ -28,6 +28,7 @@ class Venta extends Model
         'cliente_nombre',
         'cliente_documento',
         'metodo_pago',
+        'cliente_id',
         'facturar',
         'receptor_condicion_iva',
         'receptor_doc_tipo',
@@ -94,6 +95,11 @@ class Venta extends Model
     public function devoluciones(): HasMany
     {
         return $this->hasMany(Devolucion::class);
+    }
+
+    public function cliente(): BelongsTo
+    {
+        return $this->belongsTo(Cliente::class);
     }
 
     public function turno(): BelongsTo

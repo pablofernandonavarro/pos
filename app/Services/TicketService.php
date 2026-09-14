@@ -3,7 +3,10 @@
 namespace App\Services;
 
 use App\Contracts\ImpresoraTickets;
+use App\Models\Cliente;
+use App\Models\CobroCuentaCorriente;
 use App\Models\Configuracion;
+use App\Support\Dinero;
 use App\Models\Devolucion;
 use App\Models\TurnoCaja;
 use App\Models\Venta;
@@ -53,6 +56,25 @@ class TicketService
             'emisor' => FacturacionService::emisor(),
             'paraNavegador' => $paraNavegador,
         ])->render();
+    }
+
+    public function htmlCobro(CobroCuentaCorriente $cobro, bool $paraNavegador = false): string
+    {
+        $cliente = Cliente::find($cobro->cliente_id);
+
+        return view('tickets.cobro', [
+            'cobro' => $cobro,
+            'comercio' => self::datosComercio(),
+            // Saldo después del cobro, calculado en la caja (incluye lo que no se envió).
+            'saldo' => $cliente ? Dinero::pesos(app(CuentaCorrienteService::class)->saldoCentavos($cliente)) : null,
+            'paraNavegador' => $paraNavegador,
+        ])->render();
+    }
+
+    /** @return string|null null si se imprimió; si no, el motivo. */
+    public function imprimirCobro(CobroCuentaCorriente $cobro): ?string
+    {
+        return $this->mandar($this->htmlCobro($cobro));
     }
 
     /** @return string|null null si se imprimió; si no, el motivo. */

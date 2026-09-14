@@ -168,6 +168,9 @@
                     <table class="w-full text-sm">
                         <tr class="border-b border-slate-700/60"><td class="py-1.5 text-slate-300">Fondo inicial</td><td class="py-1.5 text-right text-white">{{ Dinero::formato($resumen['efectivo']['fondo_inicial']) }}</td></tr>
                         <tr class="border-b border-slate-700/60"><td class="py-1.5 text-slate-300">Ventas en efectivo</td><td class="py-1.5 text-right text-white">{{ Dinero::formato($resumen['efectivo']['ventas']) }}</td></tr>
+                        @if(($resumen['efectivo']['cobros_cuenta_corriente'] ?? 0) > 0)
+                            <tr class="border-b border-slate-700/60"><td class="py-1.5 text-slate-300">Cobros de cuenta corriente</td><td class="py-1.5 text-right text-white">{{ Dinero::formato($resumen['efectivo']['cobros_cuenta_corriente']) }}</td></tr>
+                        @endif
                         <tr class="border-b border-slate-700/60"><td class="py-1.5 text-slate-300">Ingresos</td><td class="py-1.5 text-right text-white">{{ Dinero::formato($resumen['efectivo']['ingresos']) }}</td></tr>
                         <tr class="border-b border-slate-700/60"><td class="py-1.5 text-slate-300">Retiros</td><td class="py-1.5 text-right text-red-300">−{{ Dinero::formato($resumen['efectivo']['retiros']) }}</td></tr>
                         <tr class="border-b border-slate-700/60"><td class="py-1.5 text-slate-300">Gastos</td><td class="py-1.5 text-right text-red-300">−{{ Dinero::formato($resumen['efectivo']['gastos']) }}</td></tr>
@@ -205,6 +208,71 @@
                         </table>
                     @endif
                 </div>
+            </div>
+
+            {{-- Cobro de cuenta corriente --}}
+            <div class="bg-slate-800 border border-slate-700 rounded-xl p-5 space-y-4">
+                <div class="flex items-center justify-between">
+                    <h3 class="font-semibold text-white">Cobrar cuenta corriente</h3>
+                    @if($ultimoCobroId)
+                        <a href="{{ route('pos.cobro.recibo', $ultimoCobroId) }}" target="_blank" class="text-sm text-slate-300 hover:text-white">🖨 Imprimir último recibo</a>
+                    @endif
+                </div>
+
+                @if($clienteCobro)
+                    <div class="flex flex-wrap items-center justify-between gap-3 p-3 rounded-lg bg-slate-900 border border-slate-700">
+                        <div>
+                            <div class="text-white font-medium">{{ $clienteCobro->nombre }}</div>
+                            <div class="text-xs text-slate-400">{{ $clienteCobro->documentoFormateado() }}</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-xs text-slate-400">Debe</div>
+                            <div class="text-xl font-bold {{ $saldoCobro > 0 ? 'text-amber-300' : 'text-green-400' }}">{{ Dinero::formato($saldoCobro) }}</div>
+                        </div>
+                        <button type="button" wire:click="quitarClienteCobro" class="text-xs text-slate-400 hover:text-white">Cambiar</button>
+                    </div>
+
+                    @if($saldoCobro > 0)
+                        <form wire:submit="cobrarCuenta" class="grid sm:grid-cols-4 gap-2">
+                            <input type="number" step="0.01" min="0" wire:model="cobroMonto" placeholder="Importe"
+                                   class="px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm">
+                            <select wire:model="cobroMedio" class="px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm">
+                                @foreach(\App\Models\CobroCuentaCorriente::MEDIOS as $medio)
+                                    <option value="{{ $medio }}">{{ PagoVenta::MEDIOS[$medio] }}</option>
+                                @endforeach
+                            </select>
+                            <button type="button" wire:click="$set('cobroMonto', '{{ $saldoCobro }}')" class="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm">Todo</button>
+                            <button type="submit" class="px-3 py-2 rounded-lg bg-green-600 hover:bg-green-500 text-white text-sm font-semibold">Cobrar</button>
+                        </form>
+                    @endif
+                @else
+                    <div class="relative">
+                        <input type="text" wire:model.live.debounce.300ms="clienteBusquedaCobro" placeholder="Buscar cliente por nombre, CUIT o DNI..."
+                               class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm">
+                        @if($resultadosCobro->isNotEmpty())
+                            <div class="absolute z-10 mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg overflow-hidden">
+                                @foreach($resultadosCobro as $c)
+                                    <button type="button" wire:click="elegirClienteCobro({{ $c->id }})" wire:key="cobro-cliente-{{ $c->id }}"
+                                            class="w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700">
+                                        {{ $c->nombre }} <span class="text-slate-500">{{ $c->documentoFormateado() }}</span>
+                                    </button>
+                                @endforeach
+                            </div>
+                        @endif
+                    </div>
+                @endif
+
+                @if(!empty($resumen['cuenta_corriente']['detalle']))
+                    <table class="w-full text-sm">
+                        @foreach($resumen['cuenta_corriente']['detalle'] as $cobro)
+                            <tr class="border-b border-slate-700/60">
+                                <td class="py-1.5 text-slate-400">{{ $cobro['numero'] }}</td>
+                                <td class="py-1.5 text-slate-300">{{ $cobro['cliente'] }} · {{ PagoVenta::MEDIOS[$cobro['medio']] ?? $cobro['medio'] }}</td>
+                                <td class="py-1.5 text-right text-white">{{ Dinero::formato($cobro['importe']) }}</td>
+                            </tr>
+                        @endforeach
+                    </table>
+                @endif
             </div>
         @endif
 

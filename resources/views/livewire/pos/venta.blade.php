@@ -190,25 +190,64 @@
 
         @if(!empty($carrito))
             <div class="p-6 border-t border-slate-700 space-y-4">
-                @if($letraFactura)
-                    <div class="flex items-center gap-2">
-                        <span class="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-white text-slate-900 text-xl font-black" title="Tipo de factura">{{ $letraFactura }}</span>
-                        <select wire:model.live="clienteCondicionIva"
-                                class="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            @foreach(FacturacionService::CONDICIONES_IVA as $codigo => $etiqueta)
-                                <option value="{{ $codigo }}">{{ $etiqueta }}</option>
-                            @endforeach
-                        </select>
+                @if($clienteElegido)
+                    {{-- Cliente del padrón: los datos salen de su ficha (se editan en el Manager). --}}
+                    <div class="p-3 rounded-lg bg-slate-900 border border-blue-700/60 space-y-1">
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="flex items-center gap-2">
+                                @if($letraFactura)
+                                    <span class="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-white text-slate-900 text-lg font-black" title="Tipo de factura">{{ $letraFactura }}</span>
+                                @endif
+                                <div>
+                                    <div class="text-white font-medium">{{ $clienteElegido->nombre }}</div>
+                                    <div class="text-xs text-slate-400">{{ $clienteElegido->documentoFormateado() }} · {{ FacturacionService::CONDICIONES_IVA[$clienteElegido->condicion_iva] ?? '' }}</div>
+                                </div>
+                            </div>
+                            <button type="button" wire:click="quitarCliente" class="text-xs text-slate-400 hover:text-white">Quitar</button>
+                        </div>
+                        @if($clienteElegido->cuenta_corriente)
+                            <div class="text-xs {{ $saldoCliente > 0 ? 'text-amber-300' : 'text-slate-400' }}">
+                                Cuenta corriente: debe {{ Dinero::formato($saldoCliente) }}
+                                · {{ $disponibleCliente === null ? 'sin límite' : 'disponible '.Dinero::formato($disponibleCliente) }}
+                            </div>
+                        @endif
+                    </div>
+                @else
+                    <div class="relative">
+                        <input type="text" wire:model.live.debounce.300ms="clienteBusqueda" placeholder="Buscar cliente registrado (opcional)"
+                               class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        @if($resultadosClientes->isNotEmpty())
+                            <div class="absolute z-20 bottom-full mb-1 w-full bg-slate-900 border border-slate-700 rounded-lg overflow-hidden shadow-xl">
+                                @foreach($resultadosClientes as $c)
+                                    <button type="button" wire:click="elegirCliente({{ $c->id }})" wire:key="cliente-{{ $c->id }}"
+                                            class="w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700">
+                                        {{ $c->nombre }} <span class="text-slate-500">{{ $c->documentoFormateado() }}</span>
+                                        @if($c->cuenta_corriente)<span class="ml-1 text-xs text-blue-300">cta. cte.</span>@endif
+                                    </button>
+                                @endforeach
+                            </div>
+                        @endif
+                    </div>
+                    @if($letraFactura)
+                        <div class="flex items-center gap-2">
+                            <span class="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-white text-slate-900 text-xl font-black" title="Tipo de factura">{{ $letraFactura }}</span>
+                            <select wire:model.live="clienteCondicionIva"
+                                    class="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                @foreach(FacturacionService::CONDICIONES_IVA as $codigo => $etiqueta)
+                                    <option value="{{ $codigo }}">{{ $etiqueta }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                    @endif
+                    <div class="grid grid-cols-2 gap-2">
+                        <input type="text" wire:model="clienteNombre" maxlength="150"
+                               placeholder="{{ $letraFactura && $clienteCondicionIva !== '5' ? 'Razón social' : 'Cliente (opcional)' }}"
+                               class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <input type="text" wire:model="clienteDocumento" maxlength="30" inputmode="numeric"
+                               placeholder="{{ $letraFactura && $clienteCondicionIva !== '5' ? 'CUIT' : 'DNI / CUIT (opcional)' }}"
+                               class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                     </div>
                 @endif
-                <div class="grid grid-cols-2 gap-2">
-                    <input type="text" wire:model="clienteNombre" maxlength="150"
-                           placeholder="{{ $letraFactura && $clienteCondicionIva !== '5' ? 'Razón social' : 'Cliente (opcional)' }}"
-                           class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <input type="text" wire:model="clienteDocumento" maxlength="30" inputmode="numeric"
-                           placeholder="{{ $letraFactura && $clienteCondicionIva !== '5' ? 'CUIT' : 'DNI / CUIT (opcional)' }}"
-                           class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                </div>
 
                 <div class="flex justify-between text-2xl font-bold text-white pt-2 border-t border-slate-700">
                     <span>Total</span>
@@ -277,8 +316,9 @@
                         @endif
                     </div>
 
-                    <div class="grid grid-cols-5 gap-2">
+                    <div class="grid {{ $clienteElegido?->cuenta_corriente ? 'grid-cols-3' : 'grid-cols-5' }} gap-2">
                         @foreach(PagoVenta::MEDIOS as $medio => $etiqueta)
+                            @continue($medio === 'cuenta_corriente' && ! $clienteElegido?->cuenta_corriente)
                             <button type="button" wire:click="elegirMedio('{{ $medio }}')" wire:key="medio-{{ $medio }}"
                                     class="px-2 py-3 rounded-lg text-sm font-semibold transition-colors {{ $pagoMedio === $medio ? 'bg-blue-600 text-white' : 'bg-slate-900 text-slate-300 hover:bg-slate-700' }}">
                                 {{ $etiqueta }}
@@ -292,6 +332,12 @@
                             <input type="number" step="0.01" min="0" wire:model.live.debounce.400ms="pagoMonto"
                                    class="w-full px-3 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white text-xl focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
+                        @if($pagoMedio === 'cuenta_corriente' && $clienteElegido)
+                            <div class="col-span-2 text-sm text-blue-200">
+                                Se carga a la cuenta de {{ $clienteElegido->nombre }} · debe {{ Dinero::formato($saldoCliente) }}
+                                · {{ $disponibleCliente === null ? 'sin límite' : 'disponible '.Dinero::formato($disponibleCliente) }}
+                            </div>
+                        @endif
                         @if($pagoMedio === 'efectivo')
                             <div>
                                 <label class="block text-xs font-medium text-slate-400 mb-1">Recibe (para calcular vuelto)</label>

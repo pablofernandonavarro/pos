@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\Cajero;
+use App\Models\Cliente;
+use App\Models\CobroCuentaCorriente;
 use App\Models\Configuracion;
 use App\Models\DetalleVenta;
 use App\Models\Devolucion;
@@ -72,6 +74,7 @@ class SyncService
             $resultados['promociones'] = $this->syncPromociones();
             $resultados['cajeros'] = $this->syncCajeros();
             $resultados['facturacion'] = $this->syncFacturacion();
+            $resultados['clientes'] = $this->syncClientes();
 
             return [
                 'success' => true,
@@ -549,6 +552,7 @@ class SyncService
             'metodo_pago' => $venta->metodo_pago,
             'cliente_nombre' => $venta->cliente_nombre,
             'cliente_documento' => $venta->cliente_documento,
+            'cliente_id' => $venta->cliente_id,
             'items' => $venta->detalles->map(fn ($detalle) => [
                 'product_id' => $detalle->product_id,
                 'cantidad' => $detalle->cantidad,
@@ -715,6 +719,78 @@ class SyncService
         });
 
         return ['success' => true, 'cantidad' => $cajeros->count()];
+    }
+
+    /**
+     * Reemplaza la copia local de clientes. `sincronizado_at` es la hora de la caja **antes**
+     * de pedir: lo que la caja envió después puede no estar en el saldo que devuelve el
+     * Manager, y CuentaCorrienteService lo suma aparte.
+     */
+    public function syncClientes(): array
+    {
+        $pedidoAt = now();
+        $response = $this->managerApi->syncClientes();
+
+        if (! $response['success']) {
+            return $response;
+        }
+
+        $clientes = collect($response['data']);
+
+        DB::transaction(function () use ($clientes, $pedidoAt) {
+            Cliente::whereNotIn('id', $clientes->pluck('id'))->delete();
+
+            foreach ($clientes as $c) {
+                Cliente::updateOrCreate(['id' => $c['id']], [
+                    'nombre' => $c['nombre'],
+                    'doc_tipo' => $c['doc_tipo'] ?? 99,
+                    'documento' => $c['documento'] ?? null,
+                    'condicion_iva' => $c['condicion_iva'] ?? 5,
+                    'telefono' => $c['telefono'] ?? null,
+                    'email' => $c['email'] ?? null,
+                    'cuenta_corriente' => (bool) ($c['cuenta_corriente'] ?? false),
+                    'limite_credito' => $c['limite_credito'] ?? null,
+                    'saldo' => $c['saldo'] ?? 0,
+                    'sincronizado_at' => $pedidoAt,
+                ]);
+            }
+        });
+
+        return ['success' => true, 'cantidad' => $clientes->count()];
+    }
+
+    /**
+     * Envía los cobros de cuenta corriente pendientes. Idempotente por uuid.
+     */
+    public function pushCobrosCuentaCorriente(): array
+    {
+        $cobros = CobroCuentaCorriente::pendientes()->orderBy('id')->limit(200)->get();
+
+        if ($cobros->isEmpty()) {
+            return ['success' => true, 'cantidad' => 0];
+        }
+
+        $response = $this->managerApi->pushCobrosCuentaCorriente($cobros->map(fn (CobroCuentaCorriente $c) => [
+            'uuid' => $c->uuid,
+            'cliente_id' => $c->cliente_id,
+            'importe' => $c->importe,
+            'medio' => $c->medio,
+            'fecha' => $c->created_at->toIso8601String(),
+            'cajero' => $c->cajero,
+            'numero' => $c->numero,
+        ])->all());
+
+        if (! $response['success']) {
+            return $response;
+        }
+
+        $confirmados = collect($response['resultados'])
+            ->whereIn('status', ['creado', 'duplicado'])
+            ->pluck('uuid')->all();
+
+        CobroCuentaCorriente::whereIn('uuid', $confirmados)->update(['sincronizado' => true, 'sincronizado_at' => now()]);
+
+        return ['success' => true, 'cantidad' => count($confirmados)];
     }
 
     /**

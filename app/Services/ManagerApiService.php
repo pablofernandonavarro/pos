@@ -347,6 +347,46 @@ class ManagerApiService
     }
 
     /**
+     * Clientes activos con su saldo.
+     */
+    public function syncClientes(): array
+    {
+        try {
+            $response = $this->client()->get("{$this->baseUrl}/sync/clientes");
+
+            if ($response->successful()) {
+                return ['success' => true, 'data' => $response->json('data', [])];
+            }
+
+            return ['success' => false, 'error' => $response->json('message', 'Error al traer clientes')];
+        } catch (\Exception $e) {
+            return ['success' => false, 'error' => 'Sin conexión con el Manager'];
+        }
+    }
+
+    /**
+     * Cobros de cuenta corriente hechos en esta caja.
+     *
+     * @param  array<int, array<string, mixed>>  $cobros
+     */
+    public function pushCobrosCuentaCorriente(array $cobros): array
+    {
+        try {
+            $response = $this->client()->post("{$this->baseUrl}/sync/cobros-cuenta-corriente", ['cobros' => $cobros]);
+
+            if ($response->successful()) {
+                return ['success' => true, 'resultados' => $response->json('resultados', [])];
+            }
+
+            return ['success' => false, 'error' => $response->json('message', 'Error al enviar cobros de cuenta corriente')];
+        } catch (\Exception $e) {
+            Log::error('Error enviando cobros de cuenta corriente', ['error' => $e->getMessage()]);
+
+            return ['success' => false, 'error' => 'Error de conexión al enviar cobros de cuenta corriente'];
+        }
+    }
+
+    /**
      * Estado de la caja para el panel de salud del Manager. Corto y sin reintentos: se
      * manda cada minuto y si uno se pierde no importa.
      */

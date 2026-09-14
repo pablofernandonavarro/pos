@@ -97,6 +97,14 @@
         @endforeach
     </table>
 
+    @if($venta->pagos->contains('medio', 'cuenta_corriente'))
+        <div class="sep"></div>
+        <div class="chico">Cargado a la cuenta corriente de {{ $venta->cliente_nombre }}</div>
+        <br><br>
+        <div class="centro">______________________</div>
+        <div class="centro chico">Firma del cliente</div>
+    @endif
+
     <div class="sep"></div>
     @if($fiscal)
         @include('tickets._fiscal-pie', ['comprobante' => $venta->comprobante])

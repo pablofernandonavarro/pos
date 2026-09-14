@@ -32,6 +32,7 @@ Route::middleware(RequiereCajaConfigurada::class)->group(function () {
     Route::get('/ventas', Ventas::class)->name('pos.ventas');
     Route::get('/ventas/{venta}/ticket', [InformeCajaController::class, 'ticket'])->name('pos.ticket');
     Route::get('/devoluciones/{devolucion}/comprobante', [InformeCajaController::class, 'devolucion'])->name('pos.devolucion.comprobante');
+    Route::get('/cobros/{cobro}/recibo', [InformeCajaController::class, 'cobro'])->name('pos.cobro.recibo');
     Route::get('/ajustes', Ajustes::class)->name('pos.ajustes');
 
     // Remitos por recibir

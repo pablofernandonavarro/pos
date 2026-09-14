@@ -19,7 +19,7 @@ class Devolucion extends Model
 
     public const REINTEGROS = [
         'efectivo' => 'Efectivo de la caja',
-        'medio_original' => 'Mismo medio de pago (tarjeta / transferencia)',
+        'medio_original' => 'Mismo medio de pago (tarjeta / transferencia / cuenta corriente)',
     ];
 
     protected $fillable = [

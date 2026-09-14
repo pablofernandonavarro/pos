@@ -92,6 +92,16 @@
         </table>
     @endif
 
+    @if(($resumen['cuenta_corriente']['ventas'] ?? 0) > 0 || ($resumen['cuenta_corriente']['cobros'] ?? 0) > 0)
+        <div class="titulo">CUENTA CORRIENTE</div>
+        <table>
+            <tr><td>Vendido a cuenta</td><td class="num">{{ Dinero::formato($resumen['cuenta_corriente']['ventas']) }}</td></tr>
+            @foreach($resumen['cuenta_corriente']['cobros_por_medio'] as $medio => $importe)
+                <tr><td>Cobrado · {{ PagoVenta::MEDIOS[$medio] ?? $medio }}</td><td class="num">{{ Dinero::formato($importe) }}</td></tr>
+            @endforeach
+        </table>
+    @endif
+
     @if(!empty($resumen['promociones']))
         <div class="titulo">PROMOCIONES</div>
         <table>
@@ -106,6 +116,9 @@
     <table>
         <tr><td>Fondo inicial</td><td class="num">{{ Dinero::formato($resumen['efectivo']['fondo_inicial']) }}</td></tr>
         <tr><td>Ventas</td><td class="num">{{ Dinero::formato($resumen['efectivo']['ventas']) }}</td></tr>
+        @if(($resumen['efectivo']['cobros_cuenta_corriente'] ?? 0) > 0)
+            <tr><td>Cobros cta. cte.</td><td class="num">{{ Dinero::formato($resumen['efectivo']['cobros_cuenta_corriente']) }}</td></tr>
+        @endif
         <tr><td>Ingresos</td><td class="num">{{ Dinero::formato($resumen['efectivo']['ingresos']) }}</td></tr>
         <tr><td>Retiros</td><td class="num">-{{ Dinero::formato($resumen['efectivo']['retiros']) }}</td></tr>
         <tr><td>Gastos</td><td class="num">-{{ Dinero::formato($resumen['efectivo']['gastos']) }}</td></tr>

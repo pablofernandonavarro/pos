@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\CobroCuentaCorriente;
 use App\Models\Devolucion;
 use App\Models\TurnoCaja;
 use App\Models\Venta;
@@ -29,5 +30,10 @@ class InformeCajaController
     public function devolucion(Devolucion $devolucion, TicketService $tickets): Response
     {
         return response($tickets->htmlDevolucion($devolucion, paraNavegador: true));
+    }
+
+    public function cobro(CobroCuentaCorriente $cobro, TicketService $tickets): Response
+    {
+        return response($tickets->htmlCobro($cobro, paraNavegador: true));
     }
 }

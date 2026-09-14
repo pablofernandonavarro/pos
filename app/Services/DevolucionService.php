@@ -118,6 +118,14 @@ class DevolucionService
                 $total += $ajuste;
             }
 
+            // Una venta que se llevó entera a cuenta no devuelve efectivo que nunca entró: se
+            // acredita en la cuenta del cliente.
+            $venta->loadMissing('pagos');
+
+            if ($reintegro === 'efectivo' && $venta->pagos->isNotEmpty() && $venta->pagos->every(fn ($p) => $p->medio === 'cuenta_corriente')) {
+                throw new CajaException('La venta fue a cuenta corriente: la devolución se acredita en la cuenta (elegí "mismo medio de pago").');
+            }
+
             if ($reintegro === 'efectivo') {
                 $disponible = Dinero::centavos($this->caja->resumen($turno)['efectivo']['esperado']);
 

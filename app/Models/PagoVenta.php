@@ -19,6 +19,8 @@ class PagoVenta extends Model
         'credito' => 'Crédito',
         'transferencia' => 'Transferencia',
         'qr' => 'QR / billetera',
+        // Venta fiada: suma deuda al cliente elegido (ver CuentaCorrienteService).
+        'cuenta_corriente' => 'Cuenta corriente',
     ];
 
     public const TARJETAS = [

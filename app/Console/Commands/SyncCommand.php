@@ -60,6 +60,11 @@ class SyncCommand extends Command
             ? $this->info("👤 Cajeros: {$cajeros['cantidad']}")
             : $this->warn('⚠️  Cajeros: '.($cajeros['error'] ?? 'error desconocido'));
 
+        $clientes = $syncService->syncClientes();
+        $clientes['success']
+            ? $this->info("🧑 Clientes: {$clientes['cantidad']}")
+            : $this->warn('⚠️  Clientes: '.($clientes['error'] ?? 'error desconocido'));
+
         // Facturación: si sigue activa y el resultado de las facturas que quedaron pendientes.
         $facturacion = $syncService->syncFacturacion();
 
