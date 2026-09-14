@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use Illuminate\Support\Facades\Artisan;
 use Native\Desktop\Contracts\ProvidesPhpIni;
 use Native\Desktop\Facades\Menu;
 use Native\Desktop\Facades\Window;
@@ -10,6 +11,11 @@ class NativeAppServiceProvider implements ProvidesPhpIni
 {
     public function boot(): void
     {
+        // Al abrir la app no puede haber ninguna tarea programada corriendo: si quedó un
+        // candado de withoutOverlapping es de un cierre a mitad de un sync (apagar la PC,
+        // actualizar la app) y sin esto frenaba esa tarea hasta que venciera.
+        Artisan::call('schedule:clear-cache');
+
         Menu::create(
             Menu::app(),
             Menu::make(
