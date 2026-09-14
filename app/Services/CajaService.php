@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Exceptions\CajaException;
 use App\Jobs\SincronizarPendientes;
+use App\Models\AperturaCajon;
 use App\Models\CobroCuentaCorriente;
 use App\Models\MovimientoCaja;
 use App\Models\PagoVenta;
@@ -237,6 +238,13 @@ class CajaService
                 'devoluciones' => $pesos($devueltoEfectivo),
                 'esperado' => $pesos($esperado),
             ],
+            'aperturas_cajon' => AperturaCajon::where('turno_caja_id', $turno->id)->orderBy('id')->get()
+                ->map(fn (AperturaCajon $a) => [
+                    'motivo' => $a->motivo,
+                    'cajero' => $a->cajero,
+                    'abrio' => $a->abrio,
+                    'fecha' => $a->created_at->toIso8601String(),
+                ])->all(),
             'movimientos' => $movimientos->map(fn (MovimientoCaja $m) => [
                 'tipo' => $m->tipo,
                 'monto' => (float) $m->monto,

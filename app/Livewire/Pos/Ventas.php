@@ -115,6 +115,10 @@ class Ventas extends Component
             ." ({$devolucion->numero}): se reintegran ".\App\Support\Dinero::formato($devolucion->total)
             .($devolucion->reintegro === 'efectivo' ? ' en efectivo.' : ' por el medio de pago original.');
 
+        if ($motivoCajon = app(\App\Services\CajonService::class)->abrirPorEfectivo($devolucion->reintegro === 'efectivo')) {
+            $this->error = $motivoCajon;
+        }
+
         if ($tickets->imprimeAutomatico() && ($motivo = $tickets->imprimirDevolucion($devolucion)) !== null) {
             $this->error = "No se imprimió el comprobante: {$motivo}";
         }

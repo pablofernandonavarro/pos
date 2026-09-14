@@ -49,6 +49,36 @@
             </div>
 
             <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 space-y-4">
+                <h3 class="font-semibold text-white">Cajón de dinero</h3>
+                @if($cajonDisponible)
+                    <p class="text-sm text-slate-400">Conectado a la impresora de tickets (puerto DK de la TM-T20). Se abre por la impresora {{ $imprimeDirecto ? 'elegida arriba' : 'con este nombre' }}.</p>
+                    @unless($imprimeDirecto)
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-1">Nombre de la impresora en Windows</label>
+                            <input type="text" wire:model="impresora" maxlength="200" placeholder="EPSON TM-T20"
+                                   class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        </div>
+                    @endunless
+                    <label class="flex items-center gap-3 text-slate-300">
+                        <input type="checkbox" wire:model.live="cajonHabilitado" class="rounded border-slate-600 bg-slate-900 text-blue-600">
+                        Esta caja tiene cajón de dinero
+                    </label>
+                    @if($cajonHabilitado)
+                        <label class="flex items-center gap-3 text-slate-300">
+                            <input type="checkbox" wire:model="cajonAutomatico" class="rounded border-slate-600 bg-slate-900 text-blue-600">
+                            Abrirlo solo al cobrar, dar vuelto o devolver en efectivo
+                        </label>
+                        <button type="button" wire:click="probarCajon" @disabled($impresora === '')
+                                class="px-4 py-2 rounded-lg text-sm font-medium bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors disabled:opacity-40">
+                            Probar cajón
+                        </button>
+                    @endif
+                @else
+                    <p class="text-sm text-slate-400">La apertura del cajón desde la caja funciona en Windows.</p>
+                @endif
+            </div>
+
+            <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 space-y-4">
                 <h3 class="font-semibold text-white">Encabezado y pie del ticket</h3>
                 <div class="grid sm:grid-cols-2 gap-4">
                     <div>

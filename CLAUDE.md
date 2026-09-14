@@ -136,6 +136,13 @@ Este repo es el **POS** (punto de venta, uno por caja). Se comunica por HTTP con
 - Medio de pago `cuenta_corriente`: solo con cliente con cuenta habilitada y dentro del límite (`limite_credito` null = sin límite); lo valida `VentaService::registrar()`. Una venta entera a cuenta no admite devolución en efectivo: se acredita (`medio_original`), como mucho lo cargado a cuenta en esa venta — mismo criterio que el Manager.
 - Cobro de deuda desde Caja (`CobroCuentaCorriente`, recibo `tickets/cobro`): el efectivo suma al arqueo (`resumen.efectivo.cobros_cuenta_corriente`) y viaja por `/sync/cobros-cuenta-corriente`. Solo se marca enviado lo que el Manager devolvió `creado`/`duplicado`.
 
+### Cajón de dinero (`App\Services\CajonService`, contrato `CajonDinero`)
+
+- El cajón va enchufado a la impresora (puerto DK de la TM-T20) y se abre con el pulso ESC/POS `ESC p 0 25 250`. **No se puede por la impresión de Electron** (manda HTML rasterizado por el driver): `CajonDineroWindows` escribe los bytes en crudo en la cola de Windows (winspool, tipo RAW) con PowerShell + `Add-Type`. El script va por `-EncodedCommand` (UTF-16LE base64) y no como `.ps1`, porque la app de escritorio no empaqueta los `.ps1`. El nombre de la impresora va entre comillas simples con `'` → `''`.
+- Automático (`cajon_habilitado` + `cajon_automatico` en Ajustes) solo cuando entró o salió efectivo: venta con pago en efectivo, cobro de cuenta corriente en efectivo, devolución en efectivo. Nunca frena la operación: si no abre, se avisa.
+- Apertura manual desde Caja: pide motivo y queda en `aperturas_cajon` (aunque el pulso falle) y en el informe X/Z.
+- En tests se reemplaza con `$this->app->instance(CajonDinero::class, ...)`; `CajonDineroTest` corre PowerShell de verdad solo en Windows, contra una impresora inexistente (error 1801). No probar contra una impresora láser real: imprime una hoja.
+
 ### Búsqueda de productos (SQLite FTS5)
 
 `productos` tiene una tabla virtual **FTS5** asociada, `productos_fts` (contenido externo, indexada por `productos.id`), mantenida sincronizada mediante tres triggers `AFTER INSERT/UPDATE/DELETE` creados directamente en la migración `create_productos_table` (no vía Eloquent). `Producto::scopeSearch()` primero intenta un match exacto sobre `codigo_interno`/`codigo_barras`, luego consulta `productos_fts ... MATCH ? ORDER BY rank`, y solo cae a un `LIKE` plano si FTS no devuelve nada. Cualquier migración que toque `productos.busqueda` o la estructura de la tabla debe mantener estos triggers sincronizados o la búsqueda se rompe silenciosamente.

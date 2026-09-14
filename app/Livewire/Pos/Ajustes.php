@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Pos;
 
+use App\Contracts\CajonDinero;
 use App\Contracts\ImpresoraTickets;
 use App\Exceptions\CajaException;
 use App\Models\Cajero;
@@ -20,6 +21,10 @@ class Ajustes extends Component
     public string $impresora = '';
 
     public bool $ticketAutomatico = false;
+
+    public bool $cajonHabilitado = false;
+
+    public bool $cajonAutomatico = true;
 
     public string $nombreComercio = '';
 
@@ -43,6 +48,8 @@ class Ajustes extends Component
     {
         $this->impresora = (string) Configuracion::get('impresora_ticket', '');
         $this->ticketAutomatico = (bool) Configuracion::get('ticket_automatico', false);
+        $this->cajonHabilitado = (bool) Configuracion::get('cajon_habilitado', false);
+        $this->cajonAutomatico = (bool) Configuracion::get('cajon_automatico', true);
         $this->nombreComercio = (string) Configuracion::get('ticket_nombre_comercio', '');
         $this->cuit = (string) Configuracion::get('ticket_cuit', '');
         $this->direccion = (string) Configuracion::get('ticket_direccion', '');
@@ -95,6 +102,8 @@ class Ajustes extends Component
         foreach ([
             'impresora_ticket' => trim((string) $datos['impresora']),
             'ticket_automatico' => $datos['ticketAutomatico'] ? '1' : '0',
+            'cajon_habilitado' => $this->cajonHabilitado ? '1' : '0',
+            'cajon_automatico' => $this->cajonAutomatico ? '1' : '0',
             'ticket_nombre_comercio' => trim((string) $datos['nombreComercio']),
             'ticket_cuit' => trim((string) $datos['cuit']),
             'ticket_direccion' => trim((string) $datos['direccion']),
@@ -119,6 +128,17 @@ class Ajustes extends Component
             : $this->error = $error;
     }
 
+    public function probarCajon(CajonDinero $cajon): void
+    {
+        $this->resetMensajes();
+
+        $error = $cajon->abrir($this->impresora);
+
+        $error === null
+            ? $this->mensaje = "Se mandó la apertura del cajón por «{$this->impresora}»."
+            : $this->error = $error;
+    }
+
     private function resetMensajes(): void
     {
         $this->mensaje = null;
@@ -131,6 +151,7 @@ class Ajustes extends Component
 
         return view('livewire.pos.ajustes', [
             'imprimeDirecto' => $impresoras->puedeImprimirDirecto(),
+            'cajonDisponible' => app(CajonDinero::class)->disponible(),
             'supervisores' => Cajero::where('rol', 'supervisor')->orderBy('nombre')->get(['id', 'nombre']),
             'impresorasDisponibles' => $impresoras->puedeImprimirDirecto() ? $impresoras->impresoras() : [],
         ])->layout('layouts.pos');

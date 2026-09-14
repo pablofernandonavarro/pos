@@ -196,6 +196,17 @@
                                class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm">
                     </form>
 
+                    @if($cajonHabilitado)
+                        <form wire:submit="abrirCajon" class="border-t border-slate-700 pt-4 flex gap-2">
+                            <input type="text" wire:model="motivoCajon" maxlength="200" placeholder="Motivo para abrir el cajón sin venta (ej: dar cambio)"
+                                   class="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm">
+                            <button type="submit" class="px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold whitespace-nowrap">Abrir cajón</button>
+                        </form>
+                        @if(!empty($resumen['aperturas_cajon']))
+                            <p class="text-xs text-slate-400">Aperturas sin venta en este turno: {{ count($resumen['aperturas_cajon']) }}</p>
+                        @endif
+                    @endif
+
                     @if(!empty($resumen['movimientos']))
                         <table class="w-full text-sm">
                             @foreach($resumen['movimientos'] as $m)

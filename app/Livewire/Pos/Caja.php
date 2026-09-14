@@ -7,6 +7,7 @@ use App\Models\Cliente;
 use App\Models\TurnoCaja;
 use App\Contracts\ImpresoraTickets;
 use App\Services\CajaService;
+use App\Services\CajonService;
 use App\Services\CuentaCorrienteService;
 use App\Services\TicketService;
 use App\Support\Dinero;
@@ -51,6 +52,8 @@ class Caja extends Component
     #[Locked]
     public ?int $ultimoCobroId = null;
 
+    public string $motivoCajon = '';
+
     public function elegirClienteCobro(int $id): void
     {
         $this->limpiar();
@@ -89,9 +92,40 @@ class Caja extends Component
         $this->exito = "Cobro {$cobro->numero}: ".Dinero::formato($cobro->importe)." de {$cliente->nombre}. Debe ".Dinero::formato(Dinero::pesos($cuentas->saldoCentavos($cliente))).'.';
         $this->reset(['cobroMonto', 'cobroMedio']);
 
+        if ($motivoCajon = app(CajonService::class)->abrirPorEfectivo($cobro->medio === 'efectivo')) {
+            $this->error = $motivoCajon;
+        }
+
         if ($tickets->imprimeAutomatico() && ($motivo = $tickets->imprimirCobro($cobro)) !== null) {
             $this->error = "No se imprimió el recibo: {$motivo}";
         }
+    }
+
+    /** Abrir el cajón sin venta (dar cambio, retirar): pide motivo y queda en el X/Z. */
+    public function abrirCajon(CajaService $caja, CajonService $cajon): void
+    {
+        $this->limpiar();
+
+        $turno = $caja->turnoAbierto();
+
+        if (! $turno) {
+            $this->error = 'La caja está cerrada.';
+
+            return;
+        }
+
+        try {
+            $motivo = $cajon->abrirManual($turno, $this->motivoCajon);
+        } catch (CajaException $e) {
+            $this->error = $e->getMessage();
+
+            return;
+        }
+
+        $this->reset('motivoCajon');
+        $motivo === null
+            ? $this->exito = 'Cajón abierto. Queda registrado en el informe del turno.'
+            : $this->error = $motivo;
     }
 
     public function registrarMovimiento(CajaService $caja): void
@@ -201,6 +235,7 @@ class Caja extends Component
         $clienteCobro = $this->clienteCobroId ? Cliente::find($this->clienteCobroId) : null;
 
         return view('livewire.pos.caja', [
+            'cajonHabilitado' => app(CajonService::class)->habilitado(),
             'clienteCobro' => $clienteCobro,
             'saldoCobro' => $clienteCobro ? Dinero::pesos($cuentas->saldoCentavos($clienteCobro)) : 0,
             'resultadosCobro' => $clienteCobro ? collect() : $cuentas->buscar($this->clienteBusquedaCobro),

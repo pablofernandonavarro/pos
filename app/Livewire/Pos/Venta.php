@@ -13,6 +13,7 @@ use App\Models\Producto;
 use App\Models\PromocionBancaria;
 use App\Services\AutorizacionService;
 use App\Services\CajaService;
+use App\Services\CajonService;
 use App\Services\CuentaCorrienteService;
 use App\Services\FacturacionService;
 use App\Services\TicketService;
@@ -536,6 +537,11 @@ class Venta extends Component
         $this->ultimaVentaId = $venta->id;
         $this->exito = "Venta {$venta->numero_venta} registrada · ".Dinero::formato($venta->total)
             .($vuelto > 0 ? ' · Vuelto '.Dinero::formato(Dinero::pesos($vuelto)) : '');
+
+        // Cajón: solo si entró efectivo. Si no abre se avisa, la venta ya está hecha.
+        if ($motivoCajon = app(CajonService::class)->abrirPorEfectivo($venta->pagos->contains('medio', 'efectivo'))) {
+            $this->aviso = trim(($this->aviso ? $this->aviso.' ' : '').$motivoCajon);
+        }
 
         // La venta ya está registrada: si la impresora falla se avisa, pero no se deshace nada.
         $tickets = app(TicketService::class);

@@ -150,6 +150,15 @@
         </table>
     @endif
 
+    @if(!empty($resumen['aperturas_cajon']))
+        <div class="titulo">CAJÓN ABIERTO SIN VENTA ({{ count($resumen['aperturas_cajon']) }})</div>
+        <table>
+            @foreach($resumen['aperturas_cajon'] as $a)
+                <tr><td>{{ \Illuminate\Support\Carbon::parse($a['fecha'])->timezone(config('pos.zona_horaria'))->format('H:i') }} {{ $a['motivo'] }}@unless($a['abrio']) (no abrió)@endunless</td><td class="num">{{ $a['cajero'] }}</td></tr>
+            @endforeach
+        </table>
+    @endif
+
     @if($turno->observaciones)
         <div class="sep"></div>
         <div>Obs: {{ $turno->observaciones }}</div>
