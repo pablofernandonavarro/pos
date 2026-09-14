@@ -129,6 +129,15 @@ Este repo es el **POS** (punto de venta, uno por caja). Se comunica por HTTP con
 - La venta guarda en `comprobante` (json) lo que devuelve el Manager, **incluido el QR en SVG**: la factura se reimprime sin conexión. Tickets: `tickets/_fiscal-encabezado` y `_fiscal-pie` (A discrimina IVA por alícuota; B muestra "IVA contenido", Ley 27.743). El SVG se imprime crudo solo si pasa el filtro (sin `<script>`, `on*=`, `foreignObject`).
 - Una venta enviada que el Manager no facturó en 15 minutos (facturación desactivada allá) pasa a `rechazado` para no quedar pendiente para siempre.
 
+### Clientes y cuenta corriente (`App\Services\CuentaCorrienteService`)
+
+- `clientes` es una copia del Manager (id del Manager) que `pos:sync --stock` reemplaza entera con el **saldo** de cada uno. Elegir un cliente en la venta hace que nombre, documento y condición de IVA salgan de su ficha (y de ahí la factura).
+- **Saldo sin conexión**: saldo del Manager + ventas a cuenta − cobros − créditos de devoluciones que el Manager no incluía al armar la lista: lo no enviado y lo enviado **después** de pedirla. `clientes.sincronizado_at` es la hora de la caja **antes** del GET (`SyncService::syncClientes`), así no depende de que los relojes coincidan. No cambiar a la hora de la respuesta: una venta confirmada durante el pedido quedaría fuera del saldo.
+- Medio de pago `cuenta_corriente`: solo con cliente con cuenta habilitada y dentro del límite (`limite_credito` null = sin límite); lo valida `VentaService::registrar()`. Una venta entera a cuenta no admite devolución en efectivo: se acredita (`medio_original`), como mucho lo cargado a cuenta en esa venta — mismo criterio que el Manager.
+- Cobro de deuda desde Caja (`CobroCuentaCorriente`, recibo `tickets/cobro`): el efectivo suma al arqueo (`resumen.efectivo.cobros_cuenta_corriente`) y viaja por `/sync/cobros-cuenta-corriente`. Solo se marca enviado lo que el Manager devolvió `creado`/`duplicado`.
+
+### Búsqueda de productos (SQLite FTS5)
+
 `productos` tiene una tabla virtual **FTS5** asociada, `productos_fts` (contenido externo, indexada por `productos.id`), mantenida sincronizada mediante tres triggers `AFTER INSERT/UPDATE/DELETE` creados directamente en la migración `create_productos_table` (no vía Eloquent). `Producto::scopeSearch()` primero intenta un match exacto sobre `codigo_interno`/`codigo_barras`, luego consulta `productos_fts ... MATCH ? ORDER BY rank`, y solo cae a un `LIKE` plano si FTS no devuelve nada. Cualquier migración que toque `productos.busqueda` o la estructura de la tabla debe mantener estos triggers sincronizados o la búsqueda se rompe silenciosamente.
 
 ### Precios
