@@ -12,6 +12,7 @@ use App\Models\Producto;
 use App\Models\PromocionBancaria;
 use App\Services\AutorizacionService;
 use App\Services\CajaService;
+use App\Services\FacturacionService;
 use App\Services\TicketService;
 use App\Services\VentaService;
 use App\Support\Dinero;
@@ -47,6 +48,9 @@ class Venta extends Component
     public string $clienteNombre = '';
 
     public string $clienteDocumento = '';
+
+    /** Condición frente al IVA del cliente (código de AFIP). 5 = consumidor final. */
+    public string $clienteCondicionIva = '5';
 
     public array $resultadosBusqueda = [];
 
@@ -102,6 +106,9 @@ class Venta extends Component
     public ?string $error = null;
 
     public ?string $exito = null;
+
+    /** Aviso que no es error: la venta se registró pero la factura quedó pendiente. */
+    public ?string $aviso = null;
 
     /** Última venta registrada, para reimprimir su ticket. */
     #[Locked]
@@ -461,7 +468,7 @@ class Venta extends Component
                 $this->itemsParaServicio(),
                 array_map(fn ($p) => (array) ($p['entrada'] ?? []), $this->pagos),
                 $this->listaId,
-                ['nombre' => $this->clienteNombre, 'documento' => $this->clienteDocumento],
+                ['nombre' => $this->clienteNombre, 'documento' => $this->clienteDocumento, 'condicion_iva' => $this->clienteCondicionIva],
                 Dinero::pesos($this->descuentoManualCentavos),
                 $this->descuentoAutorizadoPorId ? Cajero::find($this->descuentoAutorizadoPorId) : null
             );
@@ -470,6 +477,10 @@ class Venta extends Component
 
             return;
         }
+
+        // La factura se pide antes de imprimir, para que el ticket salga con CAE. Si no se
+        // puede (sin conexión, AFIP caído) queda pendiente y se avisa: la venta no se toca.
+        $this->aviso = app(FacturacionService::class)->facturarAhora($venta);
 
         // Fuera de la transacción: si hizo rollback no hay nada que sincronizar.
         SincronizarPendientes::dispatch();
@@ -504,7 +515,7 @@ class Venta extends Component
 
     public function resetearVenta(): void
     {
-        $this->reset(['carrito', 'subtotal', 'total', 'clienteNombre', 'clienteDocumento', 'busqueda', 'resultadosBusqueda', 'cobrando', 'pagos']);
+        $this->reset(['carrito', 'subtotal', 'total', 'clienteNombre', 'clienteDocumento', 'clienteCondicionIva', 'busqueda', 'resultadosBusqueda', 'cobrando', 'pagos']);
         $this->quitarDescuento();
         $this->resetFormularioPago();
     }
@@ -513,6 +524,7 @@ class Venta extends Component
     {
         $this->error = null;
         $this->exito = null;
+        $this->aviso = null;
     }
 
     // ------------------------------------------------------------------ Internos
@@ -591,6 +603,7 @@ class Venta extends Component
             'calculoPago' => $calculoPago,
             'bancosConocidos' => PromocionBancaria::whereNotNull('banco')->distinct()->orderBy('banco')->pluck('banco'),
             'descuentoTotal' => Dinero::pesos(array_sum(array_map(fn ($p) => (int) ($p['calculo']['descuento'] ?? 0), $this->pagos))),
+            'letraFactura' => FacturacionService::letraPara((int) $this->clienteCondicionIva),
         ])->layout('layouts.pos');
     }
 }

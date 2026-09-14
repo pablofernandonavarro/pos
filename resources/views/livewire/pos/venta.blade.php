@@ -1,5 +1,6 @@
 @php
     use App\Models\PagoVenta;
+    use App\Services\FacturacionService;
     use App\Support\Dinero;
 @endphp
 
@@ -132,6 +133,10 @@
             </div>
         @endif
 
+        @if($aviso)
+            <div class="mb-4 p-4 bg-amber-900/40 border border-amber-600 rounded-xl text-amber-100">{{ $aviso }}</div>
+        @endif
+
         @if($error && !$cobrando && $turno)
             <div class="mb-4 p-4 bg-red-900/50 border border-red-700 rounded-xl text-red-200">{{ $error }}</div>
         @endif
@@ -185,10 +190,23 @@
 
         @if(!empty($carrito))
             <div class="p-6 border-t border-slate-700 space-y-4">
+                @if($letraFactura)
+                    <div class="flex items-center gap-2">
+                        <span class="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-white text-slate-900 text-xl font-black" title="Tipo de factura">{{ $letraFactura }}</span>
+                        <select wire:model.live="clienteCondicionIva"
+                                class="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            @foreach(FacturacionService::CONDICIONES_IVA as $codigo => $etiqueta)
+                                <option value="{{ $codigo }}">{{ $etiqueta }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                @endif
                 <div class="grid grid-cols-2 gap-2">
-                    <input type="text" wire:model="clienteNombre" maxlength="150" placeholder="Cliente (opcional)"
+                    <input type="text" wire:model="clienteNombre" maxlength="150"
+                           placeholder="{{ $letraFactura && $clienteCondicionIva !== '5' ? 'Razón social' : 'Cliente (opcional)' }}"
                            class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <input type="text" wire:model="clienteDocumento" maxlength="30" placeholder="DNI / CUIT (opcional)"
+                    <input type="text" wire:model="clienteDocumento" maxlength="30" inputmode="numeric"
+                           placeholder="{{ $letraFactura && $clienteCondicionIva !== '5' ? 'CUIT' : 'DNI / CUIT (opcional)' }}"
                            class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                 </div>
 
@@ -408,10 +426,16 @@
                     </div>
 
                     <div class="pt-4 space-y-2">
+                        @if($letraFactura)
+                            <div class="text-sm text-slate-300">
+                                Factura {{ $letraFactura }} · {{ FacturacionService::CONDICIONES_IVA[(int) $clienteCondicionIva] ?? '' }}
+                                @if($clienteDocumento !== '') <span class="text-slate-500">· {{ $clienteDocumento }}</span> @endif
+                            </div>
+                        @endif
                         <button type="button" wire:click="finalizarVenta" wire:loading.attr="disabled" wire:target="finalizarVenta"
                                 class="w-full py-4 bg-green-600 hover:bg-green-500 text-white rounded-xl font-bold text-lg transition-colors disabled:opacity-50">
                             <span wire:loading.remove wire:target="finalizarVenta">Finalizar venta</span>
-                            <span wire:loading wire:target="finalizarVenta">Registrando…</span>
+                            <span wire:loading wire:target="finalizarVenta">{{ $letraFactura ? 'Registrando y facturando…' : 'Registrando…' }}</span>
                         </button>
                         <button type="button" wire:click="cancelarCobro" class="w-full py-2 text-slate-400 hover:text-white text-sm">Volver al carrito</button>
                     </div>

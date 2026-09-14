@@ -26,6 +26,9 @@ class TicketService
         return view('tickets.venta', [
             'venta' => $venta->loadMissing(['detalles.producto', 'pagos']),
             'comercio' => self::datosComercio(),
+            // Datos fiscales del emisor tal como los informó el Manager: la factura los usa en
+            // vez de los del ticket, así no puede decir otra cosa que lo que se autorizó.
+            'emisor' => FacturacionService::emisor(),
             'paraNavegador' => $paraNavegador,
         ])->render();
     }
@@ -47,6 +50,7 @@ class TicketService
         return view('tickets.devolucion', [
             'devolucion' => $devolucion->loadMissing(['items.producto', 'venta']),
             'comercio' => self::datosComercio(),
+            'emisor' => FacturacionService::emisor(),
             'paraNavegador' => $paraNavegador,
         ])->render();
     }

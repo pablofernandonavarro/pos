@@ -62,6 +62,13 @@
                                         {{ Dinero::centavos($v->devuelto) >= Dinero::centavos($v->total) ? 'Anulada' : 'Con devolución' }}
                                     </span>
                                 @endif
+                                @if($v->facturaAutorizada())
+                                    <span class="ml-1 px-1.5 py-0.5 rounded text-xs bg-green-500/20 text-green-300" title="CAE {{ $v->comprobante['cae'] }}">{{ $v->comprobante['letra'] }} {{ $v->comprobante['numero'] }}</span>
+                                @elseif($v->comprobante_estado === 'pendiente')
+                                    <span class="ml-1 px-1.5 py-0.5 rounded text-xs bg-amber-500/20 text-amber-300">Factura pendiente</span>
+                                @elseif($v->comprobante_estado === 'rechazado')
+                                    <span class="ml-1 px-1.5 py-0.5 rounded text-xs bg-red-500/20 text-red-300">Factura rechazada</span>
+                                @endif
                                 @if($v->cliente_nombre)<div class="text-xs text-slate-400">{{ $v->cliente_nombre }}</div>@endif
                             </td>
                             <td class="px-5 py-3 text-slate-300">{{ $v->fecha->timezone($zona)->format('d/m H:i') }}</td>
@@ -97,6 +104,28 @@
                 <div class="px-6 py-5 space-y-5">
                     @if($error)
                         <div class="p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-200 text-sm">{{ $error }}</div>
+                    @endif
+
+                    @if($detalle->facturar)
+                        <div class="p-3 rounded-lg border text-sm flex flex-wrap items-center justify-between gap-2
+                                    {{ $detalle->facturaAutorizada() ? 'border-green-700 bg-green-900/20 text-green-200' : ($detalle->comprobante_estado === 'rechazado' ? 'border-red-700 bg-red-900/20 text-red-200' : 'border-amber-700 bg-amber-900/20 text-amber-200') }}">
+                            <span>
+                                @if($detalle->facturaAutorizada())
+                                    {{ $detalle->comprobante['nombre_tipo'] }} {{ $detalle->comprobante['numero'] }} · CAE {{ $detalle->comprobante['cae'] }}
+                                @elseif($detalle->comprobante_estado === 'rechazado')
+                                    Factura rechazada: {{ $detalle->comprobante['error'] ?? 'sin detalle' }}
+                                @else
+                                    Factura pendiente de CAE @if($detalle->comprobante['error'] ?? null)· {{ $detalle->comprobante['error'] }}@endif
+                                @endif
+                            </span>
+                            @if($detalle->comprobante_estado === 'pendiente')
+                                <button type="button" wire:click="facturar({{ $detalle->id }})" wire:loading.attr="disabled" wire:target="facturar"
+                                        class="px-3 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold disabled:opacity-50">
+                                    <span wire:loading.remove wire:target="facturar">Pedir factura ahora</span>
+                                    <span wire:loading wire:target="facturar">Consultando…</span>
+                                </button>
+                            @endif
+                        </div>
                     @endif
 
                     <table class="w-full text-sm">
@@ -195,9 +224,9 @@
                     @else
                         <div class="flex justify-end gap-3 border-t border-slate-700 pt-4">
                             @if($imprimeDirecto)
-                                <button type="button" wire:click="imprimirTicket({{ $detalle->id }})" class="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm">🖨 Reimprimir ticket</button>
+                                <button type="button" wire:click="imprimirTicket({{ $detalle->id }})" class="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm">🖨 Reimprimir {{ $detalle->facturaAutorizada() ? 'factura' : 'ticket' }}</button>
                             @else
-                                <a href="{{ route('pos.ticket', $detalle) }}" target="_blank" class="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm">🖨 Imprimir ticket</a>
+                                <a href="{{ route('pos.ticket', $detalle) }}" target="_blank" class="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm">🖨 Imprimir {{ $detalle->facturaAutorizada() ? 'factura' : 'ticket' }}</a>
                             @endif
                             @if(Dinero::centavos($detalle->devoluciones->sum('total')) < Dinero::centavos($detalle->total))
                                 <button type="button" wire:click="iniciarDevolucion" class="px-4 py-2 rounded-lg bg-red-600/80 hover:bg-red-600 text-white text-sm font-semibold">Devolver / anular</button>

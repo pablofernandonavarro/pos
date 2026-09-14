@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\EscritorioService;
+use App\Services\FacturacionService;
 use App\Services\RemitosEntrantesService;
 use App\Services\SyncService;
 use Illuminate\Console\Command;
@@ -58,6 +59,18 @@ class SyncCommand extends Command
         $cajeros['success']
             ? $this->info("👤 Cajeros: {$cajeros['cantidad']}")
             : $this->warn('⚠️  Cajeros: '.($cajeros['error'] ?? 'error desconocido'));
+
+        // Facturación: si sigue activa y el resultado de las facturas que quedaron pendientes.
+        $facturacion = $syncService->syncFacturacion();
+
+        if (! $facturacion['success']) {
+            $this->warn('⚠️  Facturación: '.($facturacion['error'] ?? 'error desconocido'));
+        } else {
+            $pendientes = app(FacturacionService::class)->actualizarPendientes();
+            $pendientes['success']
+                ? $this->info('🧾 Comprobantes actualizados: '.$pendientes['actualizados'])
+                : $this->warn('⚠️  Comprobantes: '.($pendientes['error'] ?? 'error desconocido'));
+        }
 
         if ($resultado['success']) {
             $this->info("✅ Stock actualizado: {$resultado['cantidad']} producto(s)");

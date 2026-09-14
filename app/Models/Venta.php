@@ -28,6 +28,12 @@ class Venta extends Model
         'cliente_nombre',
         'cliente_documento',
         'metodo_pago',
+        'facturar',
+        'receptor_condicion_iva',
+        'receptor_doc_tipo',
+        'receptor_doc_nro',
+        'comprobante_estado',
+        'comprobante',
     ];
 
     protected function casts(): array
@@ -40,7 +46,17 @@ class Venta extends Model
             'total' => 'decimal:2',
             'sincronizado' => 'boolean',
             'sincronizado_at' => 'datetime',
+            'facturar' => 'boolean',
+            'receptor_condicion_iva' => 'integer',
+            'receptor_doc_tipo' => 'integer',
+            'comprobante' => 'array',
         ];
+    }
+
+    /** Tiene factura con CAE: el ticket sale como comprobante fiscal. */
+    public function facturaAutorizada(): bool
+    {
+        return $this->comprobante_estado === 'autorizado' && ! empty($this->comprobante['cae']);
     }
 
     /**

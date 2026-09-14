@@ -71,6 +71,7 @@ class SyncService
             // y el pull de cada minuto las vuelve a intentar.
             $resultados['promociones'] = $this->syncPromociones();
             $resultados['cajeros'] = $this->syncCajeros();
+            $resultados['facturacion'] = $this->syncFacturacion();
 
             return [
                 'success' => true,
@@ -522,9 +523,18 @@ class SyncService
     /**
      * @return array<string, mixed>
      */
-    private function payloadVenta(Venta $venta): array
+    public function payloadVenta(Venta $venta): array
     {
+        $venta->loadMissing(['detalles', 'pagos', 'turno']);
+
         return [
+            // Solo si la venta se marcó para facturar: sin este bloque el Manager no factura.
+            ...($venta->facturar ? ['factura' => [
+                'condicion_iva' => $venta->receptor_condicion_iva ?? 5,
+                'doc_tipo' => $venta->receptor_doc_tipo ?? 99,
+                'doc_nro' => $venta->receptor_doc_nro,
+                'nombre' => $venta->cliente_nombre,
+            ]] : []),
             'uuid' => $venta->uuid,
             'lista_precio_id' => $venta->lista_precio_id,
             'turno_uuid' => $venta->turno?->uuid,
@@ -708,6 +718,23 @@ class SyncService
     }
 
     /**
+     * Datos del emisor y si esta caja factura. Se guardan para imprimir la factura y decidir
+     * al cobrar sin depender de la red. Sin conexión queda lo último que se supo.
+     */
+    public function syncFacturacion(): array
+    {
+        $response = $this->managerApi->emisorFacturacion();
+
+        if (! $response['success']) {
+            return $response;
+        }
+
+        Configuracion::set('facturacion', json_encode($response['data']));
+
+        return ['success' => true, 'activa' => (bool) ($response['data']['activa'] ?? false)];
+    }
+
+    /**
      * Reemplaza la copia local de promociones bancarias por las que asigna el Manager.
      */
     public function syncPromociones(): array
@@ -828,6 +855,19 @@ class SyncService
      * Los movimientos de tipo 'venta' viajan dentro del push de la venta, no por /sync/movimientos.
      * Se marcan como sincronizados recién cuando el Manager confirma la venta que los originó.
      */
+    /** La venta llegó al Manager por otro camino (facturar en el momento). */
+    public function confirmarVentaEnviada(Venta $venta): void
+    {
+        $venta->marcarSincronizada();
+        $this->marcarMovimientosDeVentaSincronizados($venta);
+    }
+
+    /** Mientras falta verificar el catálogo, no sale ninguna venta (ids sin alinear). */
+    public function puedeEnviarVentas(): bool
+    {
+        return ! $this->catalogoPendienteDeVerificar();
+    }
+
     private function marcarMovimientosDeVentaSincronizados(Venta $venta): void
     {
         if (! $venta->numero_venta) {

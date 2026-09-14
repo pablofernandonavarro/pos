@@ -2,6 +2,7 @@
     use App\Models\Devolucion;
     use App\Support\Dinero;
     $zona = config('pos.zona_horaria');
+    $fiscal = $devolucion->notaDeCreditoAutorizada();
 @endphp
 <!DOCTYPE html>
 <html lang="es">
@@ -19,6 +20,8 @@
         td { padding: 1px 0; vertical-align: top; }
         td.num { text-align: right; white-space: nowrap; }
         .chico { font-size: 11px; }
+        .fuerte { font-weight: bold; }
+        .qr svg { width: 32mm; height: 32mm; margin: 4px auto; display: block; }
         .no-imprimir { margin: 10px 0; text-align: center; }
         @media print { .no-imprimir { display: none; } }
     </style>
@@ -28,9 +31,13 @@
         <div class="no-imprimir"><button onclick="window.print()">Imprimir</button> <button onclick="window.close()">Cerrar</button></div>
     @endif
 
-    <div class="centro grande">{{ $comercio['nombre'] }}</div>
-    @if($comercio['cuit'])<div class="centro chico">CUIT {{ $comercio['cuit'] }}</div>@endif
-    <div class="sep"></div>
+    @if($fiscal)
+        @include('tickets._fiscal-encabezado', ['comprobante' => $devolucion->comprobante])
+    @else
+        <div class="centro grande">{{ $comercio['nombre'] }}</div>
+        @if($comercio['cuit'])<div class="centro chico">CUIT {{ $comercio['cuit'] }}</div>@endif
+        <div class="sep"></div>
+    @endif
     <div class="centro grande">{{ $devolucion->tipo === 'anulacion' ? 'ANULACIÓN' : 'DEVOLUCIÓN' }}</div>
     <table>
         <tr><td>Comprobante</td><td class="num">{{ $devolucion->numero }}</td></tr>
@@ -56,6 +63,13 @@
     <div class="centro">______________________</div>
     <div class="centro chico">Firma del cliente</div>
     <div class="sep"></div>
-    <div class="centro chico">Documento no válido como factura</div>
+    @if($fiscal)
+        @include('tickets._fiscal-pie', ['comprobante' => $devolucion->comprobante])
+    @else
+        <div class="centro chico">Documento no válido como factura</div>
+        @if($devolucion->comprobante_estado === 'pendiente' || ($devolucion->comprobante_estado === null && $devolucion->venta->facturar && $devolucion->venta->comprobante_estado !== 'rechazado'))
+            <div class="centro chico">Nota de crédito en trámite</div>
+        @endif
+    @endif
 </body>
 </html>

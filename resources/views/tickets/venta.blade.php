@@ -2,12 +2,13 @@
     use App\Models\PagoVenta;
     use App\Support\Dinero;
     $zona = config('pos.zona_horaria');
+    $fiscal = $venta->facturaAutorizada();
 @endphp
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="utf-8">
-    <title>Ticket {{ $venta->numero_venta }}</title>
+    <title>{{ $fiscal ? $venta->comprobante['nombre_tipo'].' '.$venta->comprobante['numero'] : 'Ticket '.$venta->numero_venta }}</title>
     {{-- CSS propio y sin recursos externos: se imprime en térmica de 80 mm y, en la app de
          escritorio, se carga como data: URL sin acceso a los assets de la app. --}}
     <style>
@@ -22,6 +23,7 @@
         td.num { text-align: right; white-space: nowrap; }
         .fuerte { font-weight: bold; }
         .chico { font-size: 11px; }
+        .qr svg { width: 32mm; height: 32mm; margin: 4px auto; display: block; }
         .no-imprimir { margin: 10px 0; text-align: center; }
         @media print { .no-imprimir { display: none; } }
     </style>
@@ -34,16 +36,20 @@
         </div>
     @endif
 
-    <div class="centro grande">{{ $comercio['nombre'] }}</div>
-    @if($comercio['cuit'])<div class="centro chico">CUIT {{ $comercio['cuit'] }}</div>@endif
-    @if($comercio['direccion'])<div class="centro chico">{{ $comercio['direccion'] }}</div>@endif
-    <div class="sep"></div>
+    @if($fiscal)
+        @include('tickets._fiscal-encabezado', ['comprobante' => $venta->comprobante])
+    @else
+        <div class="centro grande">{{ $comercio['nombre'] }}</div>
+        @if($comercio['cuit'])<div class="centro chico">CUIT {{ $comercio['cuit'] }}</div>@endif
+        @if($comercio['direccion'])<div class="centro chico">{{ $comercio['direccion'] }}</div>@endif
+        <div class="sep"></div>
+    @endif
 
     <table>
         <tr><td>Venta</td><td class="num">{{ $venta->numero_venta }}</td></tr>
         <tr><td>Fecha</td><td class="num">{{ $venta->fecha->timezone($zona)->format('d/m/Y H:i') }}</td></tr>
         @if($venta->cajero)<tr><td>Cajero</td><td class="num">{{ $venta->cajero }}</td></tr>@endif
-        @if($venta->cliente_nombre || $venta->cliente_documento)
+        @if(! $fiscal && ($venta->cliente_nombre || $venta->cliente_documento))
             <tr><td>Cliente</td><td class="num">{{ trim($venta->cliente_nombre.' '.$venta->cliente_documento) }}</td></tr>
         @endif
     </table>
@@ -63,6 +69,9 @@
     <table>
         @if((float) $venta->descuento > 0)
             <tr><td>Subtotal</td><td class="num">{{ Dinero::formato($venta->subtotal) }}</td></tr>
+            @if((float) $venta->descuento_manual > 0)
+                <tr class="chico"><td>Descuento</td><td class="num">-{{ Dinero::formato($venta->descuento_manual) }}</td></tr>
+            @endif
             @foreach($venta->pagos->where('descuento', '>', 0) as $pago)
                 <tr class="chico"><td>{{ $pago->promocion_nombre ?? 'Descuento' }}</td><td class="num">-{{ Dinero::formato($pago->descuento) }}</td></tr>
             @endforeach
@@ -89,8 +98,16 @@
     </table>
 
     <div class="sep"></div>
-    @if($comercio['pie'])<div class="centro chico">{{ $comercio['pie'] }}</div>@endif
-    <div class="centro chico">Documento no válido como factura</div>
+    @if($fiscal)
+        @include('tickets._fiscal-pie', ['comprobante' => $venta->comprobante])
+    @else
+        @if($comercio['pie'])<div class="centro chico">{{ $comercio['pie'] }}</div>@endif
+        <div class="centro chico">Documento no válido como factura</div>
+        @if($venta->facturar && $venta->comprobante_estado === 'pendiente')
+            <div class="centro chico">Factura en trámite: se entrega al autorizarse</div>
+        @endif
+    @endif
+    @if($fiscal && $comercio['pie'])<div class="centro chico">{{ $comercio['pie'] }}</div>@endif
     <div class="centro chico">¡Gracias por su compra!</div>
 </body>
 </html>

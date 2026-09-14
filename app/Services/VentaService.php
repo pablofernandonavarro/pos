@@ -143,7 +143,7 @@ class VentaService
     /**
      * @param  array<int, array{product_id: int, cantidad: int}>  $items
      * @param  array<int, array<string, mixed>>  $pagos
-     * @param  array{nombre?: ?string, documento?: ?string}  $cliente
+     * @param  array{nombre?: ?string, documento?: ?string, condicion_iva?: int|string|null}  $cliente
      * @param  Cajero|null  $autorizaDescuento  Supervisor ya verificado con PIN.
      */
     public function registrar(array $items, array $pagos, ?int $listaId = null, array $cliente = [], int|float|string $descuentoManual = 0, ?Cajero $autorizaDescuento = null): Venta
@@ -154,6 +154,11 @@ class VentaService
             throw new CajaException('La caja está cerrada. Abrila para poder vender.');
         }
 
+        // Con facturación activa toda venta lleva factura (consumidor final si no hay datos),
+        // y el cliente se valida antes de cobrar.
+        $facturar = FacturacionService::activa();
+        $receptor = $facturar ? FacturacionService::receptor($cliente) : null;
+
         if ($items === []) {
             throw new CajaException('El carrito está vacío.');
         }
@@ -162,7 +167,7 @@ class VentaService
             throw new CajaException('Falta registrar el cobro.');
         }
 
-        return DB::transaction(function () use ($turno, $items, $pagos, $listaId, $cliente, $descuentoManual, $autorizaDescuento) {
+        return DB::transaction(function () use ($turno, $items, $pagos, $listaId, $cliente, $descuentoManual, $autorizaDescuento, $facturar, $receptor) {
             $lineas = $this->armarLineas($items, $listaId);
             $subtotal = array_sum(array_column($lineas, 'subtotal'));
             $manual = $this->validarDescuentoManual($subtotal, $descuentoManual, $autorizaDescuento);
@@ -196,6 +201,11 @@ class VentaService
                 'metodo_pago' => count($medios) === 1 ? reset($medios) : 'mixto',
                 'cliente_nombre' => ($n = trim((string) ($cliente['nombre'] ?? ''))) === '' ? null : mb_substr($n, 0, 150),
                 'cliente_documento' => ($d = trim((string) ($cliente['documento'] ?? ''))) === '' ? null : mb_substr($d, 0, 30),
+                'facturar' => $facturar,
+                'receptor_condicion_iva' => $receptor['condicion_iva'] ?? null,
+                'receptor_doc_tipo' => $receptor['doc_tipo'] ?? null,
+                'receptor_doc_nro' => $receptor['doc_nro'] ?? null,
+                'comprobante_estado' => $facturar ? 'pendiente' : null,
             ]);
 
             foreach ($lineas as $linea) {

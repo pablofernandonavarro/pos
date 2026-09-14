@@ -347,6 +347,84 @@ class ManagerApiService
     }
 
     /**
+     * Datos del emisor y si esta caja factura.
+     */
+    public function emisorFacturacion(): array
+    {
+        try {
+            $response = $this->client()->get("{$this->baseUrl}/pos/facturacion");
+
+            if ($response->successful()) {
+                return ['success' => true, 'data' => $response->json()];
+            }
+
+            return ['success' => false, 'error' => $response->json('message', 'Error al traer los datos de facturación')];
+        } catch (\Exception $e) {
+            return ['success' => false, 'error' => 'Sin conexión con el Manager'];
+        }
+    }
+
+    /**
+     * Manda la venta y pide la factura en el momento del cobro.
+     *
+     * No usa client(): esto corre con el cliente adelante. Sin reintentos y con un tope
+     * corto; si no alcanza, la venta ya está registrada y la factura sale por la cola.
+     */
+    public function facturarVenta(array $venta): array
+    {
+        try {
+            $response = Http::connectTimeout(3)
+                ->timeout(20)
+                ->acceptJson()
+                ->withHeaders(VersionPos::cabeceras())
+                ->withToken((string) $this->token)
+                ->post("{$this->baseUrl}/pos/facturas", $venta);
+
+            if ($response->successful()) {
+                return [
+                    'success' => true,
+                    'venta' => $response->json('venta'),
+                    'comprobante' => $response->json('comprobante'),
+                ];
+            }
+
+            return ['success' => false, 'error' => $response->json('message', 'El Manager no pudo facturar ('.$response->status().')')];
+        } catch (\Exception $e) {
+            Log::warning('No se pudo facturar en el momento', ['error' => $e->getMessage()]);
+
+            return ['success' => false, 'error' => 'Sin conexión con el Manager'];
+        }
+    }
+
+    /**
+     * Estado de los comprobantes pendientes de esta caja.
+     *
+     * @param  array<int, string>  $ventas
+     * @param  array<int, string>  $devoluciones
+     */
+    public function estadoComprobantes(array $ventas, array $devoluciones): array
+    {
+        try {
+            $response = $this->client()->post("{$this->baseUrl}/pos/comprobantes/estado", [
+                'ventas' => $ventas,
+                'devoluciones' => $devoluciones,
+            ]);
+
+            if ($response->successful()) {
+                return [
+                    'success' => true,
+                    'ventas' => (array) $response->json('ventas', []),
+                    'devoluciones' => (array) $response->json('devoluciones', []),
+                ];
+            }
+
+            return ['success' => false, 'error' => $response->json('message', 'Error al consultar comprobantes')];
+        } catch (\Exception $e) {
+            return ['success' => false, 'error' => 'Sin conexión con el Manager'];
+        }
+    }
+
+    /**
      * Órdenes que el Manager dejó para esta caja.
      */
     public function obtenerComandos(): array

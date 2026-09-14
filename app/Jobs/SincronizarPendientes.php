@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Services\FacturacionService;
 use App\Services\SyncService;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -32,13 +33,16 @@ class SincronizarPendientes implements ShouldBeUnique, ShouldQueue
         return [10, 30];
     }
 
-    public function handle(SyncService $sync): void
+    public function handle(SyncService $sync, FacturacionService $facturacion): void
     {
         $ventas = $sync->pushVentas();
         $movimientos = $sync->pushMovimientos();
         // Después de las ventas: devoluciones y cierres Z las referencian.
         $devoluciones = $sync->pushDevoluciones();
         $turnos = $sync->pushTurnos();
+
+        // No es un envío: si falla, lo retoma el sync de cada minuto sin reintentar el push.
+        $facturacion->actualizarPendientes();
 
         // Los servicios devuelven ['success' => false] en vez de lanzar excepción, así que
         // hay que fallar a mano para que la cola reintente.

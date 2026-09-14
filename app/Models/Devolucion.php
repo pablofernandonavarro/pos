@@ -24,7 +24,7 @@ class Devolucion extends Model
 
     protected $fillable = [
         'uuid', 'venta_id', 'turno_caja_id', 'numero', 'tipo', 'motivo', 'reintegro', 'total',
-        'autorizado_por', 'sincronizado', 'sincronizado_at',
+        'autorizado_por', 'sincronizado', 'sincronizado_at', 'comprobante_estado', 'comprobante',
     ];
 
     protected function casts(): array
@@ -33,7 +33,14 @@ class Devolucion extends Model
             'total' => 'decimal:2',
             'sincronizado' => 'boolean',
             'sincronizado_at' => 'datetime',
+            'comprobante' => 'array',
         ];
+    }
+
+    /** Tiene nota de crédito con CAE. */
+    public function notaDeCreditoAutorizada(): bool
+    {
+        return $this->comprobante_estado === 'autorizado' && ! empty($this->comprobante['cae']);
     }
 
     protected static function booted(): void

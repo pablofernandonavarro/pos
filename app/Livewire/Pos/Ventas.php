@@ -9,6 +9,7 @@ use App\Models\Devolucion;
 use App\Models\Venta;
 use App\Services\AutorizacionService;
 use App\Services\DevolucionService;
+use App\Services\FacturacionService;
 use App\Services\TicketService;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
@@ -128,6 +129,34 @@ class Ventas extends Component
             $this->error = "No se imprimió: {$motivo}";
         } elseif ($venta) {
             $this->mensaje = "Ticket {$venta->numero_venta} enviado a la impresora.";
+        }
+    }
+
+    /**
+     * Factura que quedó pendiente (sin conexión al cobrar): la pide de nuevo o, si el Manager
+     * ya la autorizó en segundo plano, trae el resultado.
+     */
+    public function facturar(int $ventaId, FacturacionService $facturacion): void
+    {
+        $this->limpiar();
+        $venta = Venta::find($ventaId);
+
+        if (! $venta || $venta->comprobante_estado !== 'pendiente') {
+            return;
+        }
+
+        $aviso = $venta->sincronizado
+            ? (($r = $facturacion->actualizarPendientes())['success'] ? null : $r['error'])
+            : $facturacion->facturarAhora($venta);
+
+        $venta->refresh();
+
+        if ($venta->facturaAutorizada()) {
+            $this->mensaje = "{$venta->comprobante['nombre_tipo']} {$venta->comprobante['numero']} autorizada.";
+        } else {
+            $this->error = $aviso ?? ($venta->comprobante_estado === 'rechazado'
+                ? 'AFIP rechazó la factura: '.($venta->comprobante['error'] ?? 'sin detalle')
+                : 'La factura sigue pendiente en el Manager (AFIP todavía no la autorizó).');
         }
     }
 
