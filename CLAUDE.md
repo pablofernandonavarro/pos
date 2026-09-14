@@ -143,6 +143,13 @@ Este repo es el **POS** (punto de venta, uno por caja). Se comunica por HTTP con
 - Apertura manual desde Caja: pide motivo y queda en `aperturas_cajon` (aunque el pulso falle) y en el informe X/Z.
 - En tests se reemplaza con `$this->app->instance(CajonDinero::class, ...)`; `CajonDineroTest` corre PowerShell de verdad solo en Windows, contra una impresora inexistente (error 1801). No probar contra una impresora láser real: imprime una hoja.
 
+### Indumentaria: modelos y variantes (color + talle)
+
+- **Lo que se vende es la variante**, no el modelo. En el Manager el configurable (`CONF-4301`) es un `Product` con `es_vendible = false` y cada combinación es un `Product` simple hijo (`parent_id`) con `color`, `n_talle`, SKU `CONF-4301-NEG-M` y su EAN-13. El Manager **no manda el configurable**; cada variante trae `parent_codigo_interno`/`parent_nombre`, que acá quedan en `productos.modelo_codigo`/`modelo_nombre`.
+- El stock ya era por variante (`productos.stock`, `movimientos_stock` y `detalle_ventas.product_id` = id de la variante): no hay estructura nueva de ventas ni de stock.
+- `Pos\Venta::confirmarBusqueda()`: código o barcode **de una variante** → se agrega directo; **código de modelo** → selector de color y talle (`abrirSelectorVariantes`, grilla con stock). `Producto::scopeSearch()` con el código de un modelo devuelve todas sus variantes; antes el exacto hacía `first()` y agregaba una cualquiera. Talles ordenados con `Producto::ordenTalle()` (XS…XXL, después numéricos).
+- El carrito guarda `modelo_codigo`, `variante` ("Negro / M") y `codigo_barras`; Ventas muestra variante y SKU por línea.
+
 ### Búsqueda de productos (SQLite FTS5)
 
 `productos` tiene una tabla virtual **FTS5** asociada, `productos_fts` (contenido externo, indexada por `productos.id`), mantenida sincronizada mediante tres triggers `AFTER INSERT/UPDATE/DELETE` creados directamente en la migración `create_productos_table` (no vía Eloquent). `Producto::scopeSearch()` primero intenta un match exacto sobre `codigo_interno`/`codigo_barras`, luego consulta `productos_fts ... MATCH ? ORDER BY rank`, y solo cae a un `LIKE` plano si FTS no devuelve nada. Cualquier migración que toque `productos.busqueda` o la estructura de la tabla debe mantener estos triggers sincronizados o la búsqueda se rompe silenciosamente.

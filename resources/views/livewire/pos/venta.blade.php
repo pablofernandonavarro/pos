@@ -99,7 +99,10 @@
                                 @endif
                             </div>
                             <div class="flex-1 text-left">
-                                <div class="text-white font-medium">{{ $resultado['nombre'] }}</div>
+                                <div class="text-white font-medium">
+                                    {{ $resultado['nombre'] }}
+                                    @if($resultado['variante'] ?? null)<span class="ml-1 px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-200 text-sm">{{ $resultado['variante'] }}</span>@endif
+                                </div>
                                 <div class="text-sm text-slate-400">{{ $resultado['codigo'] }} • Stock: {{ $resultado['stock'] }}</div>
                             </div>
                             <div class="text-xl font-bold text-green-400">{{ Dinero::formato($resultado['precio']) }}</div>
@@ -108,6 +111,65 @@
                 </div>
             @endif
         </div>
+
+        {{-- Selector de variante: el modelo no se vende, se elige color + talle --}}
+        @if($selector)
+            <div class="mb-6 bg-slate-800 border border-blue-700/60 rounded-xl p-5 space-y-4">
+                <div class="flex items-start justify-between gap-4">
+                    <div>
+                        <div class="text-xl font-bold text-white">{{ $selector['nombre'] }}</div>
+                        <div class="text-sm text-slate-400">{{ $selector['codigo'] }} · {{ Dinero::formato($selector['precio']) }}</div>
+                    </div>
+                    <button type="button" wire:click="cerrarSelectorVariantes" class="text-slate-400 hover:text-white">✕</button>
+                </div>
+
+                <div>
+                    <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Color</div>
+                    <div class="flex flex-wrap gap-2">
+                        @foreach($selector['colores'] as $color)
+                            <button type="button" wire:click="$set('selectorColor', @js($color))" wire:key="color-{{ $color }}"
+                                    class="px-4 py-2 rounded-lg text-sm font-semibold transition-colors {{ $selectorColor === $color ? 'bg-blue-600 text-white' : 'bg-slate-900 text-slate-200 hover:bg-slate-700' }}">
+                                {{ $color }}
+                            </button>
+                        @endforeach
+                    </div>
+                </div>
+
+                <div>
+                    <div class="text-xs font-semibold text-slate-400 uppercase mb-2">Talle</div>
+                    <div class="flex flex-wrap gap-2">
+                        @foreach($selector['talles'] as $talle)
+                            @php
+                                $celda = $selectorColor !== '' ? ($selector['grilla'][$selectorColor][$talle] ?? null) : null;
+                                $inexistente = $selectorColor !== '' && ! $celda;
+                                $sinStock = $celda && $celda['stock'] <= 0;
+                            @endphp
+                            <button type="button" wire:click="$set('selectorTalle', @js($talle))" wire:key="talle-{{ $talle }}"
+                                    @disabled($inexistente)
+                                    class="min-w-14 px-3 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-30 {{ $selectorTalle === $talle ? 'bg-blue-600 text-white' : 'bg-slate-900 text-slate-200 hover:bg-slate-700' }}">
+                                {{ $talle }}
+                                @if($celda)<span class="block text-xs font-normal {{ $sinStock ? 'text-red-300' : 'text-slate-400' }}">{{ $sinStock ? 'sin stock' : $celda['stock'].' u.' }}</span>@endif
+                            </button>
+                        @endforeach
+                    </div>
+                </div>
+
+                @php $elegida = $selectorColor !== '' && $selectorTalle !== '' ? ($selector['grilla'][$selectorColor][$selectorTalle] ?? null) : null; @endphp
+                <div class="flex items-center justify-between gap-4">
+                    <div class="text-sm text-slate-300">
+                        @if($elegida)
+                            {{ $selectorColor }} / {{ $selectorTalle }} · SKU {{ $elegida['sku'] }} · stock {{ $elegida['stock'] }}
+                        @else
+                            Elegí color y talle
+                        @endif
+                    </div>
+                    <button type="button" wire:click="agregarVarianteSeleccionada" @disabled(! $elegida)
+                            class="px-5 py-2.5 rounded-lg bg-green-600 hover:bg-green-500 text-white font-bold disabled:opacity-40">
+                        Agregar al carrito
+                    </button>
+                </div>
+            </div>
+        @endif
 
         @if($turno)
             <div class="mb-4 flex items-center gap-3 text-sm text-slate-400">
@@ -167,7 +229,13 @@
                     <div class="flex items-start justify-between mb-3">
                         <div class="flex-1">
                             <h3 class="text-white font-medium mb-1">{{ $item['nombre'] }}</h3>
-                            <p class="text-sm text-slate-400">{{ $item['codigo'] }}</p>
+                            @if($item['variante'] ?? null)
+                                {{-- Variante: modelo, combinación y SKU, para saber exactamente qué se vende. --}}
+                                <p class="text-sm text-slate-300">{{ $item['modelo_codigo'] }} · <span class="font-semibold text-blue-200">{{ $item['variante'] }}</span></p>
+                                <p class="text-xs text-slate-500">SKU {{ $item['codigo'] }}@if($item['codigo_barras'] ?? null) · {{ $item['codigo_barras'] }}@endif</p>
+                            @else
+                                <p class="text-sm text-slate-400">{{ $item['codigo'] }}</p>
+                            @endif
                         </div>
                         <button wire:click="eliminarItem({{ $index }})" class="text-red-400 hover:text-red-300 transition-colors" title="Quitar">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>

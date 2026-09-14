@@ -63,6 +63,14 @@ class Venta extends Component
 
     public array $resultadosBusqueda = [];
 
+    // --- Selector de variante (color + talle) ---
+    #[Locked]
+    public ?string $selectorModelo = null;
+
+    public string $selectorColor = '';
+
+    public string $selectorTalle = '';
+
     // --- Apertura de caja ---
     public string $aperturaCajero = '';
 
@@ -183,6 +191,15 @@ class Venta extends Component
 
         $this->busqueda = $texto;
 
+        // Código de un modelo (CONF-4301): se elige color y talle, nunca se agrega una
+        // variante cualquiera. El código o el barcode de una variante concreta sigue de
+        // largo y se agrega directo.
+        if ($modelo = $this->modeloConCodigo($texto)) {
+            $this->abrirSelectorVariantes($modelo);
+
+            return;
+        }
+
         $candidatos = $this->consultarProductos($texto, 2);
 
         if (count($candidatos) === 1) {
@@ -209,13 +226,83 @@ class Venta extends Component
             ->get()
             ->map(fn ($producto) => [
                 'id' => $producto->id,
-                'nombre' => $producto->nombre,
+                'nombre' => $producto->modelo_nombre ?? $producto->nombre,
                 'codigo' => $producto->codigo_interno ?? $producto->codigo_barras,
                 'precio' => $producto->getPrecioEfectivo($this->listaId),
                 'stock' => $producto->stock,
                 'imagen' => $producto->imagen_url,
+                'variante' => $producto->descripcionVariante(),
+                'modelo_codigo' => $producto->modelo_codigo,
             ])
             ->toArray();
+    }
+
+    // ------------------------------------------------------------------ Variantes
+
+    /** Código de modelo si el texto es exactamente uno con variantes a la venta. */
+    private function modeloConCodigo(string $texto): ?string
+    {
+        // Un código de variante o barcode exacto gana: es una prenda concreta.
+        $concreto = Producto::vendible()
+            ->where(fn ($q) => $q->whereRaw('codigo_interno = ? COLLATE NOCASE', [$texto])->orWhereRaw('codigo_barras = ? COLLATE NOCASE', [$texto]))
+            ->exists();
+
+        return $concreto ? null : Producto::vendible()->whereRaw('modelo_codigo = ? COLLATE NOCASE', [$texto])->value('modelo_codigo');
+    }
+
+    public function abrirSelectorVariantes(string $modeloCodigo): void
+    {
+        $this->limpiarMensajes();
+
+        if ($this->cobrando || ! Producto::vendible()->where('modelo_codigo', $modeloCodigo)->exists()) {
+            return;
+        }
+
+        $this->selectorModelo = $modeloCodigo;
+        $this->selectorColor = '';
+        $this->selectorTalle = '';
+        $this->busqueda = '';
+        $this->resultadosBusqueda = [];
+    }
+
+    public function cerrarSelectorVariantes(): void
+    {
+        $this->selectorModelo = null;
+        $this->reset(['selectorColor', 'selectorTalle']);
+    }
+
+    /** Agrega la combinación elegida: esa variante (con su id, SKU y stock) va al carrito. */
+    public function agregarVarianteSeleccionada(): void
+    {
+        $this->limpiarMensajes();
+
+        if (! $this->selectorModelo) {
+            return;
+        }
+
+        if ($this->selectorColor === '' || $this->selectorTalle === '') {
+            $this->error = 'Elegí color y talle.';
+
+            return;
+        }
+
+        $variante = Producto::vendible()
+            ->where('modelo_codigo', $this->selectorModelo)
+            ->where('color', $this->selectorColor)
+            ->where('n_talle', $this->selectorTalle)
+            ->first();
+
+        if (! $variante) {
+            $this->error = "No hay {$this->selectorColor} / {$this->selectorTalle} en este modelo.";
+
+            return;
+        }
+
+        $this->agregarAlCarrito($variante->id);
+
+        if ($this->error === null) {
+            $this->cerrarSelectorVariantes();
+        }
     }
 
     public function agregarAlCarrito(int $productoId): void
@@ -253,8 +340,12 @@ class Venta extends Component
         } else {
             $this->carrito[] = [
                 'product_id' => $producto->id,
-                'nombre' => $producto->nombre,
+                'nombre' => $producto->modelo_nombre ?? $producto->nombre,
                 'codigo' => $producto->codigo_interno ?? $producto->codigo_barras,
+                // Para una variante: modelo, "Negro / M" y el barcode. Simples: null.
+                'modelo_codigo' => $producto->modelo_codigo,
+                'variante' => $producto->descripcionVariante(),
+                'codigo_barras' => $producto->codigo_barras,
                 'cantidad' => 1,
                 'precio_unitario' => $producto->getPrecioEfectivo($this->listaId),
                 'subtotal' => 0,
@@ -567,6 +658,7 @@ class Venta extends Component
     {
         $this->reset(['carrito', 'subtotal', 'total', 'clienteNombre', 'clienteDocumento', 'clienteCondicionIva', 'clienteBusqueda', 'clienteId', 'busqueda', 'resultadosBusqueda', 'cobrando', 'pagos']);
         $this->quitarDescuento();
+        $this->cerrarSelectorVariantes();
         $this->resetFormularioPago();
     }
 
@@ -618,6 +710,36 @@ class Venta extends Component
         $this->pagoReferencia = '';
     }
 
+    /**
+     * Colores, talles y la grilla con el stock de cada combinación del modelo.
+     *
+     * @return array{codigo: string, nombre: string, precio: float, colores: list<string>, talles: list<string>, grilla: array<string, array<string, array{id: int, stock: int, sku: ?string}>>}|null
+     */
+    private function datosSelector(string $modeloCodigo): ?array
+    {
+        $variantes = Producto::vendible()->where('modelo_codigo', $modeloCodigo)->orderBy('id')->get();
+
+        if ($variantes->isEmpty()) {
+            return null;
+        }
+
+        $grilla = [];
+
+        foreach ($variantes as $v) {
+            $grilla[(string) $v->color][(string) $v->n_talle] = ['id' => $v->id, 'stock' => $v->stock, 'sku' => $v->codigo_interno];
+        }
+
+        return [
+            'codigo' => $modeloCodigo,
+            'nombre' => $variantes->first()->modelo_nombre ?? $modeloCodigo,
+            'precio' => $variantes->first()->getPrecioEfectivo($this->listaId),
+            'colores' => $variantes->pluck('color')->map(fn ($c) => (string) $c)->unique()->values()->all(),
+            'talles' => $variantes->pluck('n_talle')->map(fn ($t) => (string) $t)->unique()
+                ->sortBy(fn ($t) => [Producto::ordenTalle($t), $t])->values()->all(),
+            'grilla' => $grilla,
+        ];
+    }
+
     public function render()
     {
         $turno = app(CajaService::class)->turnoAbierto();
@@ -643,6 +765,7 @@ class Venta extends Component
 
         $cuentas = app(CuentaCorrienteService::class);
         $cliente = $this->clienteId ? Cliente::find($this->clienteId) : null;
+        $selector = $this->selectorModelo ? $this->datosSelector($this->selectorModelo) : null;
         $disponible = $cliente?->cuenta_corriente ? $cuentas->disponibleCentavos($cliente) : null;
 
         return view('livewire.pos.venta', [
@@ -658,6 +781,7 @@ class Venta extends Component
             'bancosConocidos' => PromocionBancaria::whereNotNull('banco')->distinct()->orderBy('banco')->pluck('banco'),
             'descuentoTotal' => Dinero::pesos(array_sum(array_map(fn ($p) => (int) ($p['calculo']['descuento'] ?? 0), $this->pagos))),
             'letraFactura' => FacturacionService::letraPara((int) $this->clienteCondicionIva),
+            'selector' => $selector,
             'clienteElegido' => $cliente,
             'saldoCliente' => $cliente ? Dinero::pesos($cuentas->saldoCentavos($cliente)) : null,
             'disponibleCliente' => $disponible === null ? null : Dinero::pesos($disponible),

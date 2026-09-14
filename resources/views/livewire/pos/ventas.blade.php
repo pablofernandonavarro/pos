@@ -142,7 +142,13 @@
                             @foreach($detalle->detalles as $linea)
                                 @php $devueltas = (int) $linea->devoluciones->sum('cantidad'); @endphp
                                 <tr wire:key="linea-{{ $linea->id }}">
-                                    <td class="py-2 text-white">{{ $linea->producto?->nombre ?? 'Artículo '.$linea->product_id }}</td>
+                                    <td class="py-2 text-white">
+                                        {{ $linea->producto?->modelo_nombre ?? $linea->producto?->nombre ?? 'Artículo '.$linea->product_id }}
+                                        @if($linea->producto?->descripcionVariante())
+                                            <span class="ml-1 px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-200 text-xs">{{ $linea->producto->descripcionVariante() }}</span>
+                                        @endif
+                                        @if($linea->producto)<div class="text-xs text-slate-500">SKU {{ $linea->producto->codigo_interno }}</div>@endif
+                                    </td>
                                     <td class="py-2 text-center text-slate-300">{{ $linea->cantidad }}</td>
                                     <td class="py-2 text-center {{ $devueltas > 0 ? 'text-amber-300' : 'text-slate-500' }}">{{ $devueltas }}</td>
                                     <td class="py-2 text-right text-slate-300">{{ Dinero::formato($linea->subtotal) }}</td>

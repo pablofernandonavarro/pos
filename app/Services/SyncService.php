@@ -146,6 +146,8 @@ class SyncService
                 'n_temporada' => $productoData['n_temporada'] ?? null,
                 'product_type' => $productoData['product_type'] ?? 'simple',
                 'parent_id' => $productoData['parent_id'] ?? null,
+                'modelo_codigo' => $productoData['parent_codigo_interno'] ?? null,
+                'modelo_nombre' => $productoData['parent_nombre'] ?? null,
                 'es_vendible' => $productoData['es_vendible'] ?? true,
                 'activo' => true,
                 'sincronizado_at' => now(),

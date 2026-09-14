@@ -31,10 +31,15 @@ class Producto extends Model
         'n_temporada',
         'product_type',
         'parent_id',
+        'modelo_codigo',
+        'modelo_nombre',
         'es_vendible',
         'activo',
         'sincronizado_at',
     ];
+
+    /** Orden de talles de indumentaria; los numéricos (jeans) van después, de menor a mayor. */
+    private const ORDEN_TALLES = ['XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'];
 
     protected function casts(): array
     {
@@ -47,6 +52,33 @@ class Producto extends Model
             'activo' => 'boolean',
             'sincronizado_at' => 'datetime',
         ];
+    }
+
+    /** Variante de un configurable: se vende esta combinación concreta de color y talle. */
+    public function esVariante(): bool
+    {
+        return $this->modelo_codigo !== null && $this->modelo_codigo !== '';
+    }
+
+    /** "Negro / M" para una variante; null para un producto simple. */
+    public function descripcionVariante(): ?string
+    {
+        if (! $this->esVariante()) {
+            return null;
+        }
+
+        return implode(' / ', array_filter([$this->color, $this->n_talle], fn ($v) => $v !== null && $v !== '')) ?: null;
+    }
+
+    public static function ordenTalle(?string $talle): int
+    {
+        $posicion = array_search(mb_strtoupper((string) $talle), self::ORDEN_TALLES, true);
+
+        return match (true) {
+            $posicion !== false => $posicion,
+            is_numeric($talle) => 100 + (int) $talle,
+            default => 1000,
+        };
     }
 
     /**
@@ -121,6 +153,14 @@ class Producto extends Model
 
         if ($exactMatch) {
             return $query->where('id', $exactMatch->id);
+        }
+
+        // Código del modelo (configurable): todas sus variantes. Antes el código exacto
+        // tomaba una sola con first() y Enter la agregaba sin preguntar color ni talle.
+        $variantesDelModelo = $query->clone()->whereRaw('modelo_codigo = ? COLLATE NOCASE', [$search]);
+
+        if ($variantesDelModelo->exists()) {
+            return $query->whereRaw('modelo_codigo = ? COLLATE NOCASE', [$search]);
         }
 
         $consultaFts = self::consultaFts($search);
