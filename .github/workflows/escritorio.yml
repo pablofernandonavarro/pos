@@ -1,0 +1,137 @@
+name: App de escritorio
+
+# Compila la app de escritorio (NativePHP) en Windows y la publica en el Manager.
+#
+#   git tag escritorio-v1.7.0 && git push origin escritorio-v1.7.0   → compila y publica
+#   Actions → App de escritorio → Run workflow (versión)             → solo compila (prueba)
+#
+# Reemplaza a compilar-escritorio.ps1 -Manager: compila desde el repo limpio, así que no se
+# puede colar la base ni la identidad de ninguna caja.
+
+on:
+  push:
+    tags: ['escritorio-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versión a compilar, ej. 1.7.0 (a mano NO publica: queda como artefacto)'
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: escritorio
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versión
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            VERSION="${GITHUB_REF_NAME#escritorio-v}"; PUBLICAR=1
+          else
+            VERSION="${{ inputs.version }}"; PUBLICAR=0
+          fi
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Versión inválida: $VERSION (formato 1.7.0)"; exit 1; }
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "PUBLICAR=$PUBLICAR" >> "$GITHUB_ENV"
+          echo "Versión $VERSION · publicar=$PUBLICAR"
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: zip, sqlite3, pdo_sqlite, mbstring, intl, fileinfo, curl, openssl
+          ini-values: memory_limit=1G
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Una dependencia nueva va en los dos composer*.json (ver CLAUDE.md, "Un solo código").
+      - name: Mismas dependencias en la clásica y en el escritorio
+        run: |
+          php -r '
+            $c = json_decode(file_get_contents("composer.json"), true)["require"];
+            $e = json_decode(file_get_contents("composer.escritorio.json"), true)["require"];
+            $propias = ["php", "nativephp/desktop"];
+            $dif = [];
+            foreach ($c as $n => $v) { if (!in_array($n, $propias) && ($e[$n] ?? null) !== $v) $dif[] = "$n $v"; }
+            foreach ($e as $n => $v) { if (!in_array($n, $propias) && !isset($c[$n])) $dif[] = "$n (solo en escritorio)"; }
+            if ($dif) { fwrite(STDERR, "composer.json y composer.escritorio.json no piden lo mismo: ".implode(", ", $dif)."\n"); exit(1); }
+            echo "OK\n";'
+
+      - name: Assets
+        run: npm ci && npm run build
+
+      - name: composer y .env de escritorio
+        env:
+          APP_KEY: ${{ secrets.ESCRITORIO_APP_KEY }}
+        run: |
+          [ -n "$APP_KEY" ] || { echo "::error::Falta el secreto ESCRITORIO_APP_KEY (la APP_KEY compartida de la app de escritorio)"; exit 1; }
+          cp composer.escritorio.json composer.json
+          cp composer.escritorio.lock composer.lock
+          # La APP_KEY es la misma en todas las compilaciones: cambiarla invalida las
+          # sesiones de las cajas instaladas.
+          sed -e "s|^APP_KEY=.*|APP_KEY=${APP_KEY}|" \
+              -e "s|^NATIVEPHP_APP_VERSION=.*|NATIVEPHP_APP_VERSION=${VERSION}|" \
+              .env.escritorio.example > .env
+          grep -q "^NATIVEPHP_APP_VERSION=${VERSION}$" .env
+
+      - name: Dependencias de escritorio (con el parche de NativePHP)
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Tests con NativePHP instalado
+        run: php vendor/bin/phpunit
+
+      # native:build termina con error si falla el instalador NSIS, pero win-unpacked queda
+      # bien: eso es lo que se distribuye.
+      - name: Compilar
+        run: |
+          php artisan native:build win --no-interaction || echo "native:build terminó con código $?"
+          ls nativephp/electron/dist/win-unpacked/*.exe
+
+      - name: Revisar lo que quedó dentro del ejecutable
+        run: |
+          APP=nativephp/electron/dist/win-unpacked/resources/build/app
+          PROHIBIDOS=$(/usr/bin/find nativephp/electron/dist/win-unpacked \( -iname '*.sqlite' -o -iname '*.sqlite-wal' -o -iname '*.sqlite-shm' -o -name '.pos-info' -o -name '.env.escritorio' \))
+          [ -z "$PROHIBIDOS" ] || { echo "::error::Se colaron datos de una caja: $PROHIBIDOS"; exit 1; }
+          grep -q "^NATIVEPHP_APP_VERSION=${VERSION}\s*$" "$APP/.env" || { echo "::error::El .env compilado no tiene NATIVEPHP_APP_VERSION=${VERSION}"; exit 1; }
+          echo OK
+
+      # Misma estructura que pos:publicar-escritorio: todo adentro de POS-Escritorio/.
+      - name: Empaquetar
+        run: |
+          mv nativephp/electron/dist/win-unpacked POS-Escritorio
+          7z a -tzip -mx=7 pos-escritorio.zip POS-Escritorio > /dev/null
+          SHA=$(sha256sum pos-escritorio.zip | cut -d' ' -f1)
+          echo "SHA=$SHA" >> "$GITHUB_ENV"
+          echo "pos-escritorio.zip $(( $(stat -c %s pos-escritorio.zip) / 1024 / 1024 )) MB · sha256 $SHA"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: POS-Escritorio-${{ env.VERSION }}
+          path: pos-escritorio.zip
+          retention-days: 14
+
+      # La clave solo puede correr recibir-escritorio en el servidor (comando forzado): no
+      # abre una terminal ni puede desplegar código.
+      - name: Publicar en el Manager
+        if: env.PUBLICAR == '1'
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.PUBLICAR_SSH_KEY }}" | tr -d '\r' > ~/.ssh/publicar
+          chmod 600 ~/.ssh/publicar
+          printf '%s\n' "${{ secrets.PUBLICAR_KNOWN_HOSTS }}" | tr -d '\r' > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/publicar -o IdentitiesOnly=yes -o BatchMode=yes \
+            "deploy@${{ vars.PUBLICAR_HOST }}" "$VERSION $SHA" < pos-escritorio.zip
