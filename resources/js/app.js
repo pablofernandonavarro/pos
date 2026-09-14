@@ -1,7 +1,6 @@
 import './bootstrap';
 
-// Alpine.js ya está incluido via CDN en los layouts
-// Puedes agregar JavaScript adicional aquí si es necesario
+// Alpine viene incluido en el bundle de Livewire, no hay que importarlo ni cargarlo aparte.
 
 // Ejemplo: Soporte para escaneo de código de barras
 document.addEventListener('DOMContentLoaded', function() {

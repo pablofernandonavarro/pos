@@ -102,29 +102,35 @@ class Producto extends Model
      */
     public function scopeSearch($query, string $search)
     {
-        if (empty($search)) {
+        $search = trim($search);
+
+        if ($search === '') {
             return $query;
         }
 
-        $search = strtolower(trim($search));
-
-        // Búsqueda exacta por código
+        // Búsqueda exacta por código. COLLATE NOCASE y no strtolower(): los códigos se
+        // guardan en mayúsculas ("ART-5626") y el = de SQLite distingue mayúsculas, así
+        // que pasar el texto a minúsculas hacía que el código exacto nunca coincidiera.
+        // El grupo evita que el OR se coma las condiciones del scope vendible().
         $exactMatch = $query->clone()
-            ->where('codigo_interno', $search)
-            ->orWhere('codigo_barras', $search)
+            ->where(function ($q) use ($search) {
+                $q->whereRaw('codigo_interno = ? COLLATE NOCASE', [$search])
+                    ->orWhereRaw('codigo_barras = ? COLLATE NOCASE', [$search]);
+            })
             ->first();
 
         if ($exactMatch) {
             return $query->where('id', $exactMatch->id);
         }
 
-        // Búsqueda por texto completo usando FTS5
-        $ids = DB::select("
+        $consultaFts = self::consultaFts($search);
+
+        $ids = $consultaFts === null ? [] : DB::select('
             SELECT id FROM productos_fts
             WHERE busqueda MATCH ?
             ORDER BY rank
             LIMIT 50
-        ", [$search]);
+        ', [$consultaFts]);
 
         $productIds = collect($ids)->pluck('id');
 
@@ -138,6 +144,33 @@ class Producto extends Model
         }
 
         return $query->whereIn('id', $productIds);
+    }
+
+    /**
+     * Arma una consulta FTS5 segura a partir de lo que tipeó el usuario.
+     *
+     * El texto no puede ir directo a MATCH: FTS5 tiene su propia sintaxis y un guion,
+     * dos puntos o comillas se interpretan como operadores. "ART-5626" reventaba con
+     * "no such column: 5626", y la mayoría de los códigos del catálogo llevan guion.
+     * Cada palabra va entre comillas (frase literal) con * para que matchee por prefijo
+     * mientras se tipea. Las palabras sin letras ni números se descartan porque una
+     * frase vacía también es error de sintaxis en FTS5.
+     */
+    private static function consultaFts(string $texto): ?string
+    {
+        $terminos = array_filter(
+            preg_split('/\s+/u', $texto, -1, PREG_SPLIT_NO_EMPTY) ?: [],
+            fn (string $t) => preg_match('/[\p{L}\p{N}]/u', $t) === 1
+        );
+
+        if ($terminos === []) {
+            return null;
+        }
+
+        return implode(' ', array_map(
+            fn (string $t) => '"'.str_replace('"', '""', $t).'"*',
+            $terminos
+        ));
     }
 
     /**

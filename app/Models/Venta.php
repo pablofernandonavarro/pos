@@ -5,17 +5,23 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 class Venta extends Model
 {
     protected $table = 'ventas';
 
     protected $fillable = [
+        'uuid',
         'lista_precio_id',
+        'turno_caja_id',
+        'cajero',
         'numero_venta',
         'fecha',
         'subtotal',
         'descuento',
+        'descuento_manual',
+        'descuento_autorizado_por',
         'total',
         'sincronizado',
         'sincronizado_at',
@@ -30,10 +36,22 @@ class Venta extends Model
             'fecha' => 'datetime',
             'subtotal' => 'decimal:2',
             'descuento' => 'decimal:2',
+            'descuento_manual' => 'decimal:2',
             'total' => 'decimal:2',
             'sincronizado' => 'boolean',
             'sincronizado_at' => 'datetime',
         ];
+    }
+
+    /**
+     * El uuid se genera en la caja y es la clave de idempotencia contra el Manager:
+     * permite reintentar un push sin duplicar la venta.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (self $venta): void {
+            $venta->uuid ??= (string) Str::uuid();
+        });
     }
 
     /**
@@ -50,6 +68,21 @@ class Venta extends Model
     public function detalles(): HasMany
     {
         return $this->hasMany(DetalleVenta::class);
+    }
+
+    public function pagos(): HasMany
+    {
+        return $this->hasMany(PagoVenta::class);
+    }
+
+    public function devoluciones(): HasMany
+    {
+        return $this->hasMany(Devolucion::class);
+    }
+
+    public function turno(): BelongsTo
+    {
+        return $this->belongsTo(TurnoCaja::class, 'turno_caja_id');
     }
 
     /**

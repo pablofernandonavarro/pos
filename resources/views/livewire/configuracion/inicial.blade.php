@@ -7,15 +7,86 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
                 </svg>
             </div>
-            <h1 class="text-3xl font-bold text-white mb-2">Configuración Inicial</h1>
-            <p class="text-slate-300">Configura tu Punto de Venta</p>
+            <h1 class="text-3xl font-bold text-white mb-2">{{ $configurado ? 'Configuración' : 'Instalar esta caja' }}</h1>
+            <p class="text-slate-300">
+                {{ $configurado ? 'Punto de Venta' : 'Pedí un código en el Manager: Puntos de venta → Código' }}
+            </p>
         </div>
 
         <!-- Card Principal -->
         <div class="bg-slate-800 rounded-2xl shadow-2xl border border-slate-700 overflow-hidden">
-            @if(!$configurado)
+            @if(!$configurado && $modo === 'codigo')
+                <!-- Alta con código de instalación -->
+                <div class="p-8">
+                    <form wire:submit="instalarConCodigo" class="space-y-6">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-2">
+                                Dirección del Manager
+                            </label>
+                            <input
+                                type="url"
+                                wire:model="urlManager"
+                                placeholder="http://manager.miempresa.com"
+                                class="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            >
+                            <p class="mt-1 text-xs text-slate-500">La misma que figura en el Manager, en las instrucciones de instalación.</p>
+                            @error('urlManager')
+                                <p class="mt-1 text-sm text-red-400">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-slate-300 mb-2">
+                                Código de instalación
+                            </label>
+                            <input
+                                type="text"
+                                wire:model="codigo"
+                                placeholder="XXXX-XXXX"
+                                autocomplete="off"
+                                autofocus
+                                class="w-full px-4 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-2xl font-mono tracking-widest text-center uppercase"
+                            >
+                            <p class="mt-1 text-xs text-slate-500">Vence a las 24 h y sirve una sola vez.</p>
+                            @error('codigo')
+                                <p class="mt-1 text-sm text-red-400">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        @if($error)
+                            <div class="p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-200 text-sm">
+                                {{ $error }}
+                            </div>
+                        @endif
+
+                        <button
+                            type="submit"
+                            wire:loading.attr="disabled"
+                            class="w-full px-6 py-4 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-xl font-bold text-lg transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <span wire:loading.remove wire:target="instalarConCodigo">Instalar caja</span>
+                            <span wire:loading wire:target="instalarConCodigo">
+                                <svg class="inline w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Instalando y bajando el catálogo...
+                            </span>
+                        </button>
+                    </form>
+
+                    <button type="button" wire:click="$set('modo', 'manual')"
+                            class="block w-full mt-5 text-center text-xs text-slate-500 hover:text-slate-300 transition-colors">
+                        Configuración manual (soporte técnico)
+                    </button>
+                </div>
+            @elseif(!$configurado)
                 <!-- Formulario de Configuración -->
                 <div class="p-8">
+                    <button type="button" wire:click="$set('modo', 'codigo')"
+                            class="mb-5 text-xs text-slate-400 hover:text-white transition-colors">
+                        ← Volver a instalar con código
+                    </button>
                     <form wire:submit="conectar" class="space-y-6">
                         <!-- URL del Manager -->
                         <div>
@@ -120,6 +191,14 @@
                         </p>
                     </div>
 
+                    @if(!empty($preparado))
+                        <div class="mb-4 p-4 bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-300 space-y-1">
+                            @foreach($preparado as $item)
+                                <p>✓ {{ $item }}</p>
+                            @endforeach
+                        </div>
+                    @endif
+
                     <!-- Mensajes -->
                     @if($error)
                         <div class="mb-4 p-4 bg-red-900/50 border border-red-700 rounded-lg text-red-200 text-sm">
@@ -157,6 +236,12 @@
                     >
                         Ir al POS →
                     </a>
+
+                    <button type="button" wire:click="usarOtroCodigo"
+                            wire:confirm="Esto reemplaza la identidad de esta caja por la del código nuevo. ¿Seguir?"
+                            class="block w-full mt-3 text-center text-xs text-slate-500 hover:text-slate-300 transition-colors">
+                        Reinstalar con otro código
+                    </button>
                 </div>
             @endif
         </div>

@@ -27,3 +27,16 @@ yarn-error.log
 # NativePHP
 /dist
 /.native
+
+# Generados en runtime: logs, sesiones, vistas compiladas, cache y respaldos
+/storage/app/*
+/storage/framework/cache/*
+/storage/framework/sessions/*
+/storage/framework/views/*
+/storage/framework/testing/*
+/storage/logs/*
+!/storage/**/.gitkeep
+/bootstrap/cache/*.php
+
+# Identidad de la caja instalada: nunca va al repo ni al kit
+.pos-info

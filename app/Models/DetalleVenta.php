@@ -34,6 +34,17 @@ class DetalleVenta extends Model
         return $this->belongsTo(Venta::class);
     }
 
+    public function devoluciones(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(DevolucionItem::class, 'detalle_venta_id');
+    }
+
+    /** Unidades de esta línea que todavía se pueden devolver. */
+    public function cantidadDevolvible(): int
+    {
+        return $this->cantidad - (int) $this->devoluciones()->sum('cantidad');
+    }
+
     /**
      * Producto vendido.
      */

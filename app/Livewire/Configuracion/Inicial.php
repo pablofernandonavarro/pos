@@ -3,7 +3,9 @@
 namespace App\Livewire\Configuracion;
 
 use App\Models\Configuracion;
+use App\Services\EscritorioService;
 use App\Services\ManagerApiService;
+use App\Services\ProvisionService;
 use App\Services\SyncService;
 use Livewire\Component;
 
@@ -18,14 +20,79 @@ class Inicial extends Component
     public ?string $mensaje = null;
     public bool $configurado = false;
 
+    /** 'codigo' (lo normal) o 'manual' (URL + id + secret, para soporte). */
+    public string $modo = 'codigo';
+    public string $urlManager = '';
+    public string $codigo = '';
+
+    /** @var array<int, string> */
+    public array $preparado = [];
+
     public function mount(): void
     {
+        $this->urlManager = Configuracion::get('manager_api_url') ?: config('pos.manager_api_url', '');
+
         // Verificar si ya está configurado
         if (Configuracion::isConfigured()) {
             $this->configurado = true;
             $this->managerApiUrl = Configuracion::get('manager_api_url', '');
             $this->puntoDeVentaId = (int) Configuracion::get('punto_de_venta_id', 0);
         }
+    }
+
+    /**
+     * Alta con el código que genera el Manager. En la app de escritorio es el único
+     * camino práctico: no hay consola donde correr pos:provision.
+     */
+    public function instalarConCodigo(ProvisionService $provision, EscritorioService $escritorio): void
+    {
+        $this->validate([
+            'urlManager' => 'required|url',
+            'codigo' => 'required|string|min:4',
+        ], [
+            'urlManager.required' => 'Poné la dirección del Manager',
+            'urlManager.url' => 'La dirección no es válida (ej: http://manager.miempresa.com)',
+            'codigo.required' => 'Pegá el código que te dio el Manager',
+            'codigo.min' => 'El código es muy corto',
+        ]);
+
+        $this->error = null;
+        $this->mensaje = null;
+
+        $resultado = $provision->instalar($this->urlManager, $this->codigo);
+
+        if (! $resultado['success']) {
+            $this->error = $resultado['error'];
+
+            return;
+        }
+
+        $this->codigo = '';
+        $this->configurado = true;
+        $this->preparado = $escritorio->prepararMaquina($resultado['pdv_nombre']);
+
+        if (! $resultado['sync']['success']) {
+            $this->error = 'La caja quedó instalada pero no se pudo bajar el catálogo: '
+                .($resultado['sync']['error'] ?? 'error desconocido')
+                .'. Probá con "Sincronizar Catálogo Inicial".';
+
+            return;
+        }
+
+        $r = $resultado['sync']['resultados'];
+        $this->mensaje = "✅ {$resultado['pdv_nombre']} lista para vender: "
+            ."{$r['productos']['cantidad']} productos, {$r['stock']['cantidad']} registros de stock.";
+
+        $this->dispatch('sync-completo');
+    }
+
+    /** Reinstalar: una caja ya configurada que necesita canjear un código nuevo. */
+    public function usarOtroCodigo(): void
+    {
+        $this->configurado = false;
+        $this->modo = 'codigo';
+        $this->error = null;
+        $this->mensaje = null;
     }
 
     public function conectar(): void
@@ -60,6 +127,7 @@ class Inicial extends Component
             if ($resultado['success']) {
                 $this->mensaje = '✅ Conexión exitosa. Iniciando sincronización...';
                 $this->configurado = true;
+                $this->preparado = app(EscritorioService::class)->prepararMaquina((string) Configuracion::get('pdv_nombre'));
 
                 // Iniciar sincronización inicial
                 $this->dispatch('configuracion-exitosa');

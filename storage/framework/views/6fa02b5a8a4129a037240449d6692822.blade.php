@@ -1,1 +1,0 @@
-producto-{{ $producto->id }}

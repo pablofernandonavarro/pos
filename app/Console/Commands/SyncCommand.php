@@ -2,21 +2,28 @@
 
 namespace App\Console\Commands;
 
+use App\Services\EscritorioService;
+use App\Services\RemitosEntrantesService;
 use App\Services\SyncService;
 use Illuminate\Console\Command;
 
 class SyncCommand extends Command
 {
-    protected $signature = 'pos:sync {--pull : Solo traer datos del Manager} {--push : Solo enviar datos al Manager}';
+    protected $signature = 'pos:sync {--pull : Solo traer datos del Manager} {--push : Solo enviar datos al Manager} {--stock : Solo traer stock (liviano, apto para correr seguido)}';
 
     protected $description = 'Sincroniza el POS con el Manager';
 
     public function handle(SyncService $syncService): int
     {
-        $this->info('🔄 Iniciando sincronización...');
-
+        $stockOnly = $this->option('stock');
         $pullOnly = $this->option('pull');
         $pushOnly = $this->option('push');
+
+        if ($stockOnly) {
+            return $this->syncStock($syncService);
+        }
+
+        $this->info('🔄 Iniciando sincronización...');
 
         if ($pullOnly) {
             return $this->syncPull($syncService);
@@ -27,6 +34,57 @@ class SyncCommand extends Command
         }
 
         return $this->syncBidireccional($syncService);
+    }
+
+    /**
+     * Solo stock: un GET y un update por producto. A diferencia del pull completo,
+     * no toca la tabla de precios (que syncPrecios trunca y reconstruye entera),
+     * así que se puede correr cada pocos minutos sin costo real.
+     */
+    private function syncStock(SyncService $syncService): int
+    {
+        $resultado = $syncService->syncStock();
+
+        // Los remitos en camino y las promociones viajan con el stock: misma frecuencia y
+        // mismo proceso, y si fallan no afectan al stock (ni al revés).
+        $this->syncRemitos();
+
+        $promociones = $syncService->syncPromociones();
+        $promociones['success']
+            ? $this->info("💳 Promociones bancarias: {$promociones['cantidad']}")
+            : $this->warn('⚠️  Promociones: '.($promociones['error'] ?? 'error desconocido'));
+
+        $cajeros = $syncService->syncCajeros();
+        $cajeros['success']
+            ? $this->info("👤 Cajeros: {$cajeros['cantidad']}")
+            : $this->warn('⚠️  Cajeros: '.($cajeros['error'] ?? 'error desconocido'));
+
+        if ($resultado['success']) {
+            $this->info("✅ Stock actualizado: {$resultado['cantidad']} producto(s)");
+
+            return self::SUCCESS;
+        }
+
+        $this->error('❌ Error al traer stock: '.($resultado['error'] ?? 'desconocido'));
+
+        return self::FAILURE;
+    }
+
+    private function syncRemitos(): void
+    {
+        $remitos = app(RemitosEntrantesService::class)->sincronizar();
+
+        if (! $remitos['success']) {
+            $this->warn('⚠️  Remitos: '.($remitos['error'] ?? 'error desconocido'));
+
+            return;
+        }
+
+        $this->info("📦 Remitos por recibir: {$remitos['cantidad']}");
+
+        if ($remitos['nuevos'] !== []) {
+            app(EscritorioService::class)->notificarRemitosNuevos($remitos['nuevos']);
+        }
     }
 
     private function syncPull(SyncService $syncService): int
@@ -67,6 +125,21 @@ class SyncCommand extends Command
             $this->info("✅ Movimientos: {$movResult['cantidad']} sincronizados");
         } else {
             $this->warn("⚠️  Movimientos: {$movResult['error']}");
+        }
+
+        $devResult = $syncService->pushDevoluciones();
+        if ($devResult['success']) {
+            $this->info("✅ Devoluciones: {$devResult['cantidad']} sincronizadas");
+        } else {
+            $this->warn("⚠️  Devoluciones: {$devResult['error']}");
+        }
+
+        // Enviar turnos de caja (el abierto se actualiza; los cerrados llegan con su Z)
+        $turnosResult = $syncService->pushTurnos();
+        if ($turnosResult['success']) {
+            $this->info("✅ Cierres de caja: {$turnosResult['cantidad']} sincronizados");
+        } else {
+            $this->warn("⚠️  Turnos de caja: {$turnosResult['error']}");
         }
 
         return self::SUCCESS;

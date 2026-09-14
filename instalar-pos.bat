@@ -35,8 +35,8 @@ echo ║   INICIANDO INSTALACIÓN                            ║
 echo ╚════════════════════════════════════════════════════╝
 echo.
 
-REM [1/8] Verificar PHP
-echo [1/8] Verificando PHP...
+REM [1/11] Verificar PHP
+echo [1/11] Verificando PHP...
 php -v > nul 2>&1
 if errorlevel 1 (
     echo ❌ ERROR: PHP no encontrado en el PATH
@@ -53,8 +53,8 @@ for /f "tokens=2" %%i in ('php -v ^| findstr /R "PHP [0-9]"') do set PHP_VERSION
 echo ✓ PHP %PHP_VERSION% detectado
 echo.
 
-REM [2/8] Verificar Composer
-echo [2/8] Verificando Composer...
+REM [2/11] Verificar Composer
+echo [2/11] Verificando Composer...
 composer --version > nul 2>&1
 if errorlevel 1 (
     echo ❌ ERROR: Composer no encontrado
@@ -66,8 +66,8 @@ if errorlevel 1 (
 echo ✓ Composer instalado
 echo.
 
-REM [3/8] Instalar dependencias PHP
-echo [3/8] Instalando dependencias PHP...
+REM [3/11] Instalar dependencias PHP
+echo [3/11] Instalando dependencias PHP...
 echo    (Esto puede tardar 2-3 minutos)
 call composer install --no-interaction --prefer-dist
 if errorlevel 1 (
@@ -79,8 +79,8 @@ if errorlevel 1 (
 echo ✓ Dependencias PHP instaladas
 echo.
 
-REM [4/8] Verificar Node.js
-echo [4/8] Verificando Node.js...
+REM [4/11] Verificar Node.js
+echo [4/11] Verificando Node.js...
 node -v > nul 2>&1
 if errorlevel 1 (
     echo ❌ ERROR: Node.js no encontrado
@@ -93,8 +93,8 @@ for /f "tokens=1" %%i in ('node -v') do set NODE_VERSION=%%i
 echo ✓ Node.js %NODE_VERSION% detectado
 echo.
 
-REM [5/8] Instalar dependencias JavaScript
-echo [5/8] Instalando dependencias JavaScript...
+REM [5/11] Instalar dependencias JavaScript
+echo [5/11] Instalando dependencias JavaScript...
 echo    (Esto puede tardar 2-3 minutos)
 call npm install --silent
 if errorlevel 1 (
@@ -106,8 +106,8 @@ if errorlevel 1 (
 echo ✓ Dependencias JavaScript instaladas
 echo.
 
-REM [6/8] Configurar entorno
-echo [6/8] Configurando entorno...
+REM [6/11] Configurar entorno
+echo [6/11] Configurando entorno...
 
 REM Copiar .env si no existe
 if not exist ".env" (
@@ -139,8 +139,8 @@ if not exist "database\database.sqlite" (
 )
 echo.
 
-REM [7/8] Ejecutar migraciones
-echo [7/8] Ejecutando migraciones de base de datos...
+REM [7/11] Ejecutar migraciones
+echo [7/11] Ejecutando migraciones de base de datos...
 php artisan migrate --force --no-interaction
 if errorlevel 1 (
     echo ❌ ERROR: Fallo en las migraciones
@@ -152,8 +152,8 @@ if errorlevel 1 (
 echo ✓ Migraciones ejecutadas exitosamente
 echo.
 
-REM [8/8] Compilar assets
-echo [8/8] Compilando assets frontend...
+REM [8/11] Compilar assets
+echo [8/11] Compilando assets frontend...
 echo    (Esto puede tardar 1-2 minutos)
 call npm run build
 if errorlevel 1 (
@@ -177,6 +177,53 @@ if not exist "iniciar-%POS_NAME%.bat" (
     echo php artisan serve>> "iniciar-%POS_NAME%.bat"
     echo ✓ Script de inicio personalizado creado
 )
+echo.
+
+REM [9/11] Vincular con el Manager
+echo [9/11] Vinculando esta caja con el Manager...
+echo.
+echo    Un usuario del Manager genera el codigo en:
+echo    Puntos de venta ^> boton "Codigo"
+echo.
+set /p CODIGO_INSTALACION="Codigo de instalacion (Enter para configurar despues): "
+
+if "%CODIGO_INSTALACION%"=="" (
+    echo ⚠ Sin codigo: la caja queda sin vincular.
+    echo    Podes hacerlo despues con: php artisan pos:provision
+) else (
+    php artisan pos:provision "%CODIGO_INSTALACION%"
+    if errorlevel 1 (
+        echo.
+        echo ⚠ No se pudo vincular. El POS quedo instalado igual.
+        echo    Pedi un codigo nuevo y ejecuta: php artisan pos:provision
+    )
+)
+echo.
+
+REM [10/11] Sincronizacion automatica
+REM Sin esto la caja guarda las ventas localmente pero nunca las manda al Manager,
+REM y el stock se queda viejo. Son tareas de Windows, arrancan al iniciar sesion.
+echo [10/11] Configurando sincronizacion automatica...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0instalar-inicio-automatico.ps1" -Carpeta "%~dp0." -Nombre "%POS_NAME%"
+if errorlevel 1 (
+    echo ⚠ No se pudo registrar el inicio automatico.
+    echo    El POS funciona igual, pero hay que levantar la sincronizacion a mano
+    echo    ejecutando servicios.bat cada vez.
+) else (
+    echo ✓ Sincronizacion automatica configurada
+)
+echo.
+
+REM [11/11] Acceso directo en el escritorio
+REM Abre la caja en modo aplicacion (sin pestañas ni barra de direcciones).
+echo [11/11] Creando acceso directo en el escritorio...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0crear-acceso-directo.ps1" -Carpeta "%~dp0." -Nombre "%POS_NAME%"
+if errorlevel 1 (
+    echo ⚠ No se pudo crear el acceso directo.
+    echo    Podes crearlo despues con: crear-acceso-directo.bat
+) else (
+    echo ✓ Acceso directo creado
+)
 
 echo.
 echo ╔════════════════════════════════════════════════════╗
@@ -198,18 +245,11 @@ echo    1. Iniciar el servidor:
 echo       • Ejecuta: iniciar.bat
 echo       • O ejecuta: iniciar-%POS_NAME%.bat
 echo.
-echo    2. Configurar el POS:
-echo       • Abre: http://localhost:8000/configuracion
-echo       • Necesitarás:
-echo         - URL del Manager: http://[IP-SERVIDOR]:8000/api
-echo         - ID del POS: [número único, ej: 1, 2, 3...]
-echo         - Secret: [clave secreta del POS]
+echo    2. Si NO ingresaste el código de instalación:
+echo       • Pedí uno en el Manager (Puntos de venta ^> Instalar)
+echo       • Ejecuta: php artisan pos:provision
 echo.
-echo    3. Sincronizar catálogo:
-echo       • Click en "Sincronizar Catálogo Inicial"
-echo       • Espera a que descargue productos y precios
-echo.
-echo    4. ¡Comenzar a vender! 🛒
+echo    3. ¡Comenzar a vender! 🛒
 echo.
 echo 💡 TIPS:
 echo ────────────────────────────────────────────────────

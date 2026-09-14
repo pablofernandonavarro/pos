@@ -38,4 +38,18 @@ echo.
 echo ========================================
 echo.
 
+REM Worker: envia cada venta al Manager apenas se cierra (en segundos).
+REM Sin esto las ventas quedan encoladas y solo salen cuando corre el scheduler.
+echo Iniciando worker de sincronizacion...
+start "POS Worker" /MIN php artisan queue:work --tries=3 --sleep=1
+
+REM Scheduler: red de seguridad cada 5 minutos, por si el worker estuvo caido.
+echo Iniciando sincronizacion programada...
+start "POS Scheduler" /MIN php artisan schedule:work
+echo.
+
 php artisan serve
+
+REM Al cerrar el servidor, cerrar tambien los procesos en segundo plano.
+taskkill /FI "WINDOWTITLE eq POS Worker*" /T /F >nul 2>&1
+taskkill /FI "WINDOWTITLE eq POS Scheduler*" /T /F >nul 2>&1

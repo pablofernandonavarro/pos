@@ -33,22 +33,30 @@
                             <a href="{{ route('pos.venta') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.venta') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
                                 Venta
                             </a>
+                            <a href="{{ route('pos.ventas') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.ventas') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
+                                Ventas
+                            </a>
+                            <a href="{{ route('pos.caja') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.caja*') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
+                                Caja
+                            </a>
                             <a href="{{ route('pos.productos') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.productos') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
                                 Productos
                             </a>
                             <a href="{{ route('pos.stock') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.stock') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
                                 Stock
                             </a>
+                            <a href="{{ route('pos.remitos') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.remitos') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
+                                Remitos
+                            </a>
                         </nav>
                     @endif
                 </div>
 
                 <div class="flex items-center gap-4">
-                    <!-- Status de conexión -->
-                    <div class="flex items-center gap-2">
-                        <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                        <span class="text-sm text-slate-400">En línea</span>
-                    </div>
+                    <!-- Estado real de sincronización -->
+                    @if (\App\Models\Configuracion::isConfigured())
+                        @livewire('pos.estado-sync')
+                    @endif
 
                     <!-- Reloj -->
                     <div class="text-sm text-slate-400" x-data="{ time: '' }" x-init="setInterval(() => time = new Date().toLocaleTimeString('es-AR'), 1000)" x-text="time"></div>
@@ -65,13 +73,46 @@
                             <a href="{{ route('pos.sync') }}" class="block px-4 py-2 text-sm hover:bg-slate-700 transition-colors">
                                 🔄 Sincronizar
                             </a>
+                            <a href="{{ route('pos.ajustes') }}" class="block px-4 py-2 text-sm hover:bg-slate-700 transition-colors">
+                                🖨 Impresora y ticket
+                            </a>
                             <a href="{{ route('pos.configuracion') }}" class="block px-4 py-2 text-sm hover:bg-slate-700 transition-colors">
                                 ⚙️ Configuración
                             </a>
                             <hr class="my-2 border-slate-700">
-                            <button class="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-slate-700 transition-colors">
-                                🚪 Salir
-                            </button>
+                            <div x-data="{
+                                confirmando: false,
+                                bloqueado: false,
+                                salir() {
+                                    window.close();
+                                    // Chrome solo deja cerrar pestañas abiertas por script. Si sigue viva
+                                    // después de intentarlo, avisamos en vez de fallar en silencio.
+                                    setTimeout(() => { this.confirmando = false; this.bloqueado = true; }, 300);
+                                }
+                            }">
+                                <button type="button" x-show="!confirmando && !bloqueado" @click="confirmando = true"
+                                        class="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-slate-700 transition-colors">
+                                    🚪 Salir
+                                </button>
+
+                                <div x-show="confirmando" x-cloak class="px-4 py-2">
+                                    <p class="text-xs text-slate-400 mb-2">¿Cerrar el POS?</p>
+                                    <div class="flex gap-2">
+                                        <button type="button" @click="salir()"
+                                                class="flex-1 px-2 py-1 rounded text-xs font-medium bg-red-600 hover:bg-red-500 text-white transition-colors">
+                                            Sí, salir
+                                        </button>
+                                        <button type="button" @click="confirmando = false"
+                                                class="flex-1 px-2 py-1 rounded text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors">
+                                            Cancelar
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <p x-show="bloqueado" x-cloak class="px-4 py-2 text-xs text-amber-300 leading-snug">
+                                    El navegador no permite cerrar esta pestaña desde la página. Cerrala con Ctrl+W.
+                                </p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -84,8 +125,9 @@
         </main>
     </div>
 
+    {{-- Livewire 4 ya incluye Alpine. No cargarlo aparte desde un CDN: duplica la instancia
+         y mete una dependencia de internet en una app que tiene que andar offline. --}}
     @livewireScripts
-    <script src="//unpkg.com/alpinejs" defer></script>
 
     <style>
         [x-cloak] { display: none !important; }

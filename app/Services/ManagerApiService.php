@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\Configuracion;
+use App\Support\VersionPos;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
@@ -24,11 +26,17 @@ class ManagerApiService
      */
     private function client(): PendingRequest
     {
-        $client = Http::timeout(30)
+        // connectTimeout corto: sin él, con el servidor caído o la red cortada a mitad de
+        // camino, cada intento espera los 30s enteros (≈90s con los reintentos). 5s alcanzan
+        // para conectar por internet; el timeout largo queda para la respuesta.
+        $client = Http::connectTimeout(5)
+            ->timeout(30)
             ->retry(3, 100)
             ->withHeaders([
                 'Accept' => 'application/json',
                 'Content-Type' => 'application/json',
+                // El Manager muestra en Puntos de venta qué versión corre cada caja.
+                ...VersionPos::cabeceras(),
             ]);
 
         if ($this->token) {
@@ -211,6 +219,7 @@ class ManagerApiService
                     'success' => true,
                     'message' => $response->json('message'),
                     'sincronizado_at' => $response->json('sincronizado_at'),
+                    'resultados' => $response->json('resultados', []),
                 ];
             }
 
@@ -243,6 +252,7 @@ class ManagerApiService
                     'success' => true,
                     'message' => $response->json('message'),
                     'sincronizado_at' => $response->json('sincronizado_at'),
+                    'resultados' => $response->json('resultados', []),
                 ];
             }
 
@@ -257,6 +267,252 @@ class ManagerApiService
                 'success' => false,
                 'error' => 'Error de conexión al enviar movimientos',
             ];
+        }
+    }
+
+    /**
+     * Envía turnos de caja (abiertos y cerrados) con sus movimientos.
+     */
+    public function pushTurnos(array $turnos): array
+    {
+        try {
+            $response = $this->client()->post("{$this->baseUrl}/sync/turnos", ['turnos' => $turnos]);
+
+            if ($response->successful()) {
+                return ['success' => true, 'resultados' => $response->json('resultados', [])];
+            }
+
+            return ['success' => false, 'error' => $response->json('message', 'Error al enviar turnos de caja')];
+        } catch (\Exception $e) {
+            Log::error('Error enviando turnos de caja', ['error' => $e->getMessage()]);
+
+            return ['success' => false, 'error' => 'Error de conexión al enviar turnos de caja'];
+        }
+    }
+
+    /**
+     * Envía comprobantes de devolución.
+     */
+    public function pushDevoluciones(array $devoluciones): array
+    {
+        try {
+            $response = $this->client()->post("{$this->baseUrl}/sync/devoluciones", ['devoluciones' => $devoluciones]);
+
+            if ($response->successful()) {
+                return ['success' => true, 'resultados' => $response->json('resultados', [])];
+            }
+
+            return ['success' => false, 'error' => $response->json('message', 'Error al enviar devoluciones')];
+        } catch (\Exception $e) {
+            Log::error('Error enviando devoluciones', ['error' => $e->getMessage()]);
+
+            return ['success' => false, 'error' => 'Error de conexión al enviar devoluciones'];
+        }
+    }
+
+    /**
+     * Cajeros habilitados en la sucursal de esta caja (con el PIN hasheado).
+     */
+    public function syncCajeros(): array
+    {
+        try {
+            $response = $this->client()->get("{$this->baseUrl}/sync/cajeros");
+
+            if ($response->successful()) {
+                return ['success' => true, 'data' => $response->json('data', [])];
+            }
+
+            return ['success' => false, 'error' => $response->json('message', 'Error al traer cajeros')];
+        } catch (\Exception $e) {
+            return ['success' => false, 'error' => 'Sin conexión con el Manager'];
+        }
+    }
+
+    /**
+     * Promociones bancarias vigentes para la sucursal de esta caja.
+     */
+    public function syncPromociones(): array
+    {
+        try {
+            $response = $this->client()->get("{$this->baseUrl}/sync/promociones");
+
+            if ($response->successful()) {
+                return ['success' => true, 'data' => $response->json('data', [])];
+            }
+
+            return ['success' => false, 'error' => $response->json('message', 'Error al traer promociones')];
+        } catch (\Exception $e) {
+            return ['success' => false, 'error' => 'Sin conexión con el Manager'];
+        }
+    }
+
+    /**
+     * Órdenes que el Manager dejó para esta caja.
+     */
+    public function obtenerComandos(): array
+    {
+        try {
+            $response = $this->client()->get("{$this->baseUrl}/pos/comandos");
+
+            if ($response->successful()) {
+                return [
+                    'success' => true,
+                    'data' => $response->json('data', []),
+                ];
+            }
+
+            return [
+                'success' => false,
+                'error' => $response->json('message', 'Error al consultar órdenes'),
+            ];
+        } catch (\Exception $e) {
+            // Sin conexión no es un error digno de log: la caja funciona offline por diseño
+            // y este endpoint se consulta cada minuto.
+            return [
+                'success' => false,
+                'error' => 'Sin conexión con el Manager',
+            ];
+        }
+    }
+
+    /**
+     * Informa al Manager cómo terminó una orden.
+     */
+    public function reportarComando(int $comandoId, bool $exito, ?string $resultado = null): array
+    {
+        try {
+            $response = $this->client()->post("{$this->baseUrl}/pos/comandos/{$comandoId}/resultado", [
+                'exito' => $exito,
+                'resultado' => $resultado ? mb_substr($resultado, 0, 2000) : null,
+            ]);
+
+            return ['success' => $response->successful()];
+        } catch (\Exception $e) {
+            Log::error('Error reportando comando', ['comando' => $comandoId, 'error' => $e->getMessage()]);
+
+            return ['success' => false];
+        }
+    }
+
+    /**
+     * Remitos en camino a la sucursal de esta caja.
+     */
+    public function obtenerRemitos(): array
+    {
+        try {
+            $response = $this->client()->get("{$this->baseUrl}/pos/remitos");
+
+            if ($response->successful()) {
+                return ['success' => true, 'data' => $response->json('data', [])];
+            }
+
+            return ['success' => false, 'error' => $response->json('message', 'Error al consultar remitos')];
+        } catch (\Exception $e) {
+            // Se consulta cada minuto y la caja funciona offline por diseño: no se loguea.
+            return ['success' => false, 'error' => 'Sin conexión con el Manager'];
+        }
+    }
+
+    /**
+     * Da por recibido un remito en el Manager.
+     *
+     * No usa client(): su retry() convierte cualquier 4xx en excepción, y acá hace falta
+     * distinguir "el remito fue cancelado" (409) o "no es para esta sucursal" (404) de
+     * "no hay red". Solo se reintenta ante fallas de conexión; el Manager es idempotente
+     * para esta operación, así que un reintento nunca suma dos veces.
+     *
+     * @return array{success: bool, status?: string, stock?: array, error?: string, codigo?: int}
+     */
+    public function recibirRemito(int $remitoId): array
+    {
+        try {
+            $response = Http::connectTimeout(5)
+                ->timeout(30)
+                ->acceptJson()
+                ->withHeaders(VersionPos::cabeceras())
+                ->withToken((string) $this->token)
+                ->retry(3, 300, fn ($e) => $e instanceof ConnectionException, throw: false)
+                ->post("{$this->baseUrl}/pos/remitos/{$remitoId}/recibir");
+
+            if ($response->successful()) {
+                return [
+                    'success' => true,
+                    'status' => $response->json('status'),
+                    'stock' => $response->json('stock', []),
+                ];
+            }
+
+            return [
+                'success' => false,
+                'codigo' => $response->status(),
+                'error' => $response->json('message', 'El Manager rechazó la recepción ('.$response->status().')'),
+            ];
+        } catch (\Exception $e) {
+            Log::warning('No se pudo recibir el remito', ['remito' => $remitoId, 'error' => $e->getMessage()]);
+
+            return ['success' => false, 'error' => 'Sin conexión con el Manager. La mercadería no se dio por recibida: reintentá cuando vuelva la conexión.'];
+        }
+    }
+
+    /**
+     * Versión del POS que el Manager tiene publicada.
+     */
+    public function obtenerVersion(): array
+    {
+        try {
+            $response = $this->client()->get("{$this->baseUrl}/pos/version");
+
+            if ($response->successful()) {
+                return ['success' => true, 'data' => $response->json()];
+            }
+
+            return [
+                'success' => false,
+                'error' => $response->json('message', 'No hay versión publicada'),
+            ];
+        } catch (\Exception $e) {
+            return ['success' => false, 'error' => 'Sin conexión con el Manager'];
+        }
+    }
+
+    /**
+     * Baja el paquete de actualización al disco.
+     *
+     * Se usa sink() para escribir directo al archivo: el zip pesa varios MB y cargarlo
+     * entero en memoria en una caja modesta es pedir problemas.
+     */
+    public function descargarPaquete(string $destino): array
+    {
+        // El handle se abre y cierra acá a propósito: pasarle una ruta a sink() deja el
+        // archivo tomado por este proceso, y después nada externo puede leerlo
+        // (el instalador lo descomprime con PowerShell y fallaba por archivo bloqueado).
+        $handle = fopen($destino, 'w');
+
+        if ($handle === false) {
+            return ['success' => false, 'error' => "No se pudo escribir en {$destino}"];
+        }
+
+        try {
+            $response = Http::timeout(300)
+                ->withHeaders($this->token ? ['Authorization' => "Bearer {$this->token}"] : [])
+                ->sink($handle)
+                ->get("{$this->baseUrl}/pos/paquete");
+
+            fclose($handle);
+
+            if ($response->successful()) {
+                return ['success' => true];
+            }
+
+            return ['success' => false, 'error' => 'El Manager rechazó la descarga ('.$response->status().')'];
+        } catch (\Exception $e) {
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
+
+            Log::error('Error descargando paquete', ['error' => $e->getMessage()]);
+
+            return ['success' => false, 'error' => 'Falló la descarga del paquete'];
         }
     }
 

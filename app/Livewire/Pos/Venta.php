@@ -2,215 +2,595 @@
 
 namespace App\Livewire\Pos;
 
-use App\Models\DetalleVenta;
+use App\Contracts\ImpresoraTickets;
+use App\Exceptions\CajaException;
+use App\Jobs\SincronizarPendientes;
+use App\Models\Cajero;
 use App\Models\ListaPrecio;
-use App\Models\MovimientoStock;
+use App\Models\PagoVenta;
 use App\Models\Producto;
-use App\Models\Venta as VentaModel;
-use Illuminate\Support\Facades\DB;
+use App\Models\PromocionBancaria;
+use App\Services\AutorizacionService;
+use App\Services\CajaService;
+use App\Services\TicketService;
+use App\Services\VentaService;
+use App\Support\Dinero;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
+/**
+ * Pantalla de venta. Arma el carrito y el cobro; registrar la venta, validar el cobro y
+ * aplicar promociones lo hace VentaService (acá no se confía en nada que venga del
+ * navegador).
+ *
+ * El estado que decide plata va #[Locked]: el navegador lo ve pero no lo puede modificar.
+ * VentaService igual recalcula todo; el candado evita además que una autorización de
+ * supervisor se pueda inventar desde el cliente.
+ */
 class Venta extends Component
 {
     public string $busqueda = '';
+
+    /** @var array<int, array{product_id: int, nombre: string, codigo: ?string, cantidad: int, precio_unitario: float, subtotal: float, stock_disponible: int}> */
+    #[Locked]
     public array $carrito = [];
+
+    #[Locked]
     public ?int $listaId = null;
+
+    #[Locked]
     public float $subtotal = 0;
-    public float $descuento = 0;
+
+    #[Locked]
     public float $total = 0;
+
     public string $clienteNombre = '';
+
     public string $clienteDocumento = '';
-    public string $metodoPago = 'efectivo';
-    public bool $modalBusqueda = false;
+
     public array $resultadosBusqueda = [];
+
+    // --- Apertura de caja ---
+    public string $aperturaCajero = '';
+
+    public string $aperturaCajeroId = '';
+
+    public string $aperturaPin = '';
+
+    public string $aperturaFondo = '';
+
+    // --- Cobro ---
+    #[Locked]
+    public bool $cobrando = false;
+
+    /** @var array<int, array<string, mixed>> Pagos ya agregados: lo que cargó el cajero + cómo quedó calculado. */
+    #[Locked]
+    public array $pagos = [];
+
+    // --- Descuento manual ---
+    public string $descuentoTipo = 'porcentaje';
+
+    public string $descuentoValor = '';
+
+    public string $descuentoSupervisorId = '';
+
+    public string $descuentoPin = '';
+
+    #[Locked]
+    public int $descuentoManualCentavos = 0;
+
+    #[Locked]
+    public ?int $descuentoAutorizadoPorId = null;
+
+    public string $pagoMedio = 'efectivo';
+
+    public string $pagoMonto = '';
+
+    public string $pagoRecibido = '';
+
+    public string $pagoTarjeta = '';
+
+    public string $pagoBanco = '';
+
+    public string $pagoCuotas = '1';
+
+    public ?int $pagoPromocionId = null;
+
+    public string $pagoReferencia = '';
+
+    // --- Mensajes ---
+    public ?string $error = null;
+
+    public ?string $exito = null;
+
+    /** Última venta registrada, para reimprimir su ticket. */
+    #[Locked]
+    public ?int $ultimaVentaId = null;
 
     public function mount(): void
     {
-        $listaDefault = ListaPrecio::getDefault();
-        $this->listaId = $listaDefault?->id;
+        $this->listaId = ListaPrecio::getDefault()?->id;
     }
 
+    // ------------------------------------------------------------------ Caja
+
+    public function abrirCaja(CajaService $caja): void
+    {
+        $this->limpiarMensajes();
+
+        $fondo = $this->aperturaFondo === '' ? 0 : $this->aperturaFondo;
+
+        try {
+            $turno = app(AutorizacionService::class)->hayCajeros()
+                ? $caja->abrirConPin($this->aperturaCajeroId === '' ? null : (int) $this->aperturaCajeroId, $this->aperturaPin, $fondo)
+                : $caja->abrir($this->aperturaCajero, $fondo);
+
+            $this->exito = "Caja abierta: turno #{$turno->numero} · {$turno->cajero}";
+            $this->reset(['aperturaCajero', 'aperturaCajeroId', 'aperturaFondo']);
+        } catch (CajaException $e) {
+            $this->error = $e->getMessage();
+        } finally {
+            // El PIN nunca queda en el estado del componente (viaja al navegador).
+            $this->aperturaPin = '';
+        }
+    }
+
+    // ------------------------------------------------------------------ Búsqueda y carrito
+
+    /**
+     * Mientras se tipea solo se muestran resultados, nunca se agrega nada. Agregar en
+     * cada tecla sumaba artículos a mitad de escritura: con la búsqueda por prefijo,
+     * "ART-56" ya deja un único resultado antes de terminar de escribir el código.
+     */
     public function updatedBusqueda(): void
     {
-        if (strlen($this->busqueda) >= 2) {
-            $this->buscarProductos();
-        } else {
-            $this->resultadosBusqueda = [];
-        }
+        $this->resultadosBusqueda = mb_strlen(trim($this->busqueda)) >= 2
+            ? $this->consultarProductos($this->busqueda, 10)
+            : [];
     }
 
-    public function buscarProductos(): void
+    /**
+     * Enter confirma: si la búsqueda deja un solo producto (código exacto o texto que
+     * ya no admite dudas), se agrega. Es lo mismo que manda un lector de códigos de
+     * barras al terminar de escanear, así que el escaneo sigue funcionando.
+     *
+     * El texto llega como parámetro desde el input y no se lee de $busqueda: el campo
+     * tiene debounce, y un lector escanea y manda Enter antes de que se sincronice.
+     */
+    public function confirmarBusqueda(string $texto): void
     {
-        $this->resultadosBusqueda = Producto::vendible()
-            ->search($this->busqueda)
-            ->limit(10)
-            ->get()
-            ->map(function ($producto) {
-                return [
-                    'id' => $producto->id,
-                    'nombre' => $producto->nombre,
-                    'codigo' => $producto->codigo_interno ?? $producto->codigo_barras,
-                    'precio' => $producto->getPrecioEfectivo($this->listaId),
-                    'stock' => $producto->stock,
-                    'imagen' => $producto->imagen_url,
-                ];
-            })
-            ->toArray();
+        $texto = trim($texto);
 
-        if (count($this->resultadosBusqueda) === 1) {
-            $this->agregarAlCarrito($this->resultadosBusqueda[0]['id']);
-            $this->busqueda = '';
-            $this->resultadosBusqueda = [];
-        } elseif (count($this->resultadosBusqueda) > 1) {
-            $this->modalBusqueda = true;
+        if ($texto === '') {
+            return;
         }
+
+        $this->busqueda = $texto;
+
+        $candidatos = $this->consultarProductos($texto, 2);
+
+        if (count($candidatos) === 1) {
+            // Se muestra antes de intentar agregarlo: si se rechaza (sin stock, no vendible)
+            // la lista enseña el producto que se escaneó con su stock, en vez de quedar
+            // con los resultados de la búsqueda anterior. Si se agrega, se limpia sola.
+            $this->resultadosBusqueda = $candidatos;
+            $this->agregarAlCarrito($candidatos[0]['id']);
+
+            return;
+        }
+
+        $this->resultadosBusqueda = $this->consultarProductos($texto, 10);
+    }
+
+    /**
+     * @return array<int, array{id: int, nombre: string, codigo: ?string, precio: float, stock: int, imagen: ?string}>
+     */
+    private function consultarProductos(string $texto, int $limite): array
+    {
+        return Producto::vendible()
+            ->search($texto)
+            ->limit($limite)
+            ->get()
+            ->map(fn ($producto) => [
+                'id' => $producto->id,
+                'nombre' => $producto->nombre,
+                'codigo' => $producto->codigo_interno ?? $producto->codigo_barras,
+                'precio' => $producto->getPrecioEfectivo($this->listaId),
+                'stock' => $producto->stock,
+                'imagen' => $producto->imagen_url,
+            ])
+            ->toArray();
     }
 
     public function agregarAlCarrito(int $productoId): void
     {
+        $this->limpiarMensajes();
+
+        if ($this->cobrando) {
+            return;
+        }
+
         $producto = Producto::find($productoId);
 
-        if (! $producto || ! $producto->es_vendible) {
-            $this->dispatch('error', message: 'Producto no disponible');
+        if (! $producto || ! $producto->es_vendible || ! $producto->activo) {
+            $this->error = 'Producto no disponible';
 
             return;
         }
 
         if ($producto->stock <= 0) {
-            $this->dispatch('error', message: 'Producto sin stock');
+            $this->error = "Sin stock de {$producto->nombre}";
 
             return;
         }
 
-        // Verificar si ya está en el carrito
         $key = array_search($productoId, array_column($this->carrito, 'product_id'));
 
         if ($key !== false) {
-            // Incrementar cantidad
-            if ($this->carrito[$key]['cantidad'] < $producto->stock) {
-                $this->carrito[$key]['cantidad']++;
-                $this->carrito[$key]['subtotal'] = $this->carrito[$key]['cantidad'] * $this->carrito[$key]['precio_unitario'];
-            } else {
-                $this->dispatch('error', message: 'Stock insuficiente');
+            if ($this->carrito[$key]['cantidad'] >= $producto->stock) {
+                $this->error = "Stock insuficiente de {$producto->nombre}: hay {$producto->stock}";
 
                 return;
             }
+
+            $this->carrito[$key]['cantidad']++;
         } else {
-            // Agregar nuevo item
             $this->carrito[] = [
                 'product_id' => $producto->id,
                 'nombre' => $producto->nombre,
                 'codigo' => $producto->codigo_interno ?? $producto->codigo_barras,
                 'cantidad' => 1,
                 'precio_unitario' => $producto->getPrecioEfectivo($this->listaId),
-                'subtotal' => $producto->getPrecioEfectivo($this->listaId),
+                'subtotal' => 0,
                 'stock_disponible' => $producto->stock,
             ];
         }
 
         $this->calcularTotales();
         $this->busqueda = '';
-        $this->modalBusqueda = false;
         $this->resultadosBusqueda = [];
     }
 
     public function incrementarCantidad(int $index): void
     {
+        if ($this->cobrando || ! isset($this->carrito[$index])) {
+            return;
+        }
+
         if ($this->carrito[$index]['cantidad'] < $this->carrito[$index]['stock_disponible']) {
             $this->carrito[$index]['cantidad']++;
-            $this->carrito[$index]['subtotal'] = $this->carrito[$index]['cantidad'] * $this->carrito[$index]['precio_unitario'];
             $this->calcularTotales();
         } else {
-            $this->dispatch('error', message: 'Stock insuficiente');
+            $this->error = 'Stock insuficiente';
         }
     }
 
     public function decrementarCantidad(int $index): void
     {
+        if ($this->cobrando || ! isset($this->carrito[$index])) {
+            return;
+        }
+
         if ($this->carrito[$index]['cantidad'] > 1) {
             $this->carrito[$index]['cantidad']--;
-            $this->carrito[$index]['subtotal'] = $this->carrito[$index]['cantidad'] * $this->carrito[$index]['precio_unitario'];
             $this->calcularTotales();
         }
     }
 
     public function eliminarItem(int $index): void
     {
+        if ($this->cobrando) {
+            return;
+        }
+
         unset($this->carrito[$index]);
-        $this->carrito = array_values($this->carrito); // Reindexar
+        $this->carrito = array_values($this->carrito);
         $this->calcularTotales();
     }
 
     public function calcularTotales(): void
     {
-        $this->subtotal = array_sum(array_column($this->carrito, 'subtotal'));
-        $this->total = $this->subtotal - $this->descuento;
+        foreach ($this->carrito as $i => $item) {
+            $this->carrito[$i]['subtotal'] = Dinero::pesos(Dinero::centavos($item['precio_unitario'] * $item['cantidad']));
+        }
+
+        // El total sale del mismo cálculo que usa VentaService al registrar.
+        try {
+            $centavos = app(VentaService::class)->subtotalCentavos($this->itemsParaServicio(), $this->listaId);
+        } catch (CajaException $e) {
+            $centavos = array_sum(array_map(fn ($i) => Dinero::centavos($i['subtotal']), $this->carrito));
+            $this->error = $e->getMessage();
+        }
+
+        $this->subtotal = Dinero::pesos($centavos);
+        $this->total = $this->subtotal;
     }
 
-    public function finalizarVenta(): void
+    // ------------------------------------------------------------------ Cobro
+
+    public function abrirCobro(): void
     {
-        if (empty($this->carrito)) {
-            $this->dispatch('error', message: 'El carrito está vacío');
+        $this->limpiarMensajes();
+
+        if ($this->carrito === []) {
+            $this->error = 'El carrito está vacío';
+
+            return;
+        }
+
+        $this->calcularTotales();
+        $this->pagos = [];
+        $this->cobrando = true;
+        $this->resetFormularioPago();
+    }
+
+    public function cancelarCobro(): void
+    {
+        $this->cobrando = false;
+        $this->pagos = [];
+        $this->quitarDescuento();
+        $this->limpiarMensajes();
+    }
+
+    /**
+     * Descuento manual sobre el total. Hasta el límite configurado lo aplica el cajero; por
+     * encima hace falta que un supervisor ponga su PIN acá mismo.
+     */
+    public function aplicarDescuento(VentaService $ventas, AutorizacionService $autorizacion): void
+    {
+        $this->error = null;
+
+        if ($this->pagos !== []) {
+            $this->error = 'Quitá los pagos cargados antes de cambiar el descuento.';
+
+            return;
+        }
+
+        $subtotal = Dinero::centavos($this->total);
+        $valor = (float) str_replace(',', '.', $this->descuentoValor);
+        $centavos = $this->descuentoTipo === 'porcentaje'
+            ? (int) round($subtotal * $valor / 100)
+            : Dinero::centavos($valor);
+
+        try {
+            $autoriza = null;
+            $porcentaje = $subtotal > 0 ? $centavos * 100 / $subtotal : 0;
+
+            if ($porcentaje > VentaService::limiteDescuentoSinAutorizacion() + 0.0001) {
+                $autoriza = $autorizacion->verificar(
+                    $this->descuentoSupervisorId === '' ? null : (int) $this->descuentoSupervisorId,
+                    $this->descuentoPin,
+                    requiereSupervisor: true
+                );
+            }
+
+            $this->descuentoManualCentavos = $ventas->validarDescuentoManual($subtotal, Dinero::pesos($centavos), $autoriza);
+            $this->descuentoAutorizadoPorId = $autoriza?->id;
+            $this->descuentoValor = '';
+        } catch (CajaException $e) {
+            $this->error = $e->getMessage();
+        } finally {
+            $this->descuentoPin = '';
+        }
+
+        $this->resetFormularioPago();
+    }
+
+    public function quitarDescuento(): void
+    {
+        $this->descuentoManualCentavos = 0;
+        $this->descuentoAutorizadoPorId = null;
+        $this->reset(['descuentoValor', 'descuentoSupervisorId', 'descuentoPin']);
+
+        if ($this->cobrando && $this->pagos === []) {
+            $this->resetFormularioPago();
+        }
+    }
+
+    public function elegirMedio(string $medio): void
+    {
+        if (! array_key_exists($medio, PagoVenta::MEDIOS)) {
+            return;
+        }
+
+        $this->pagoMedio = $medio;
+        $this->pagoPromocionId = null;
+        $this->error = null;
+    }
+
+    /** Si cambian los datos del pago, la promoción elegida puede dejar de aplicar. */
+    public function updated(string $propiedad): void
+    {
+        if (in_array($propiedad, ['pagoMonto', 'pagoTarjeta', 'pagoBanco', 'pagoMedio'], true)) {
+            $this->pagoPromocionId = null;
+        }
+    }
+
+    public function agregarPago(VentaService $ventas): void
+    {
+        $this->error = null;
+        $entrada = $this->entradaPago();
+
+        try {
+            $calculo = $ventas->calcularPago($entrada);
+        } catch (CajaException $e) {
+            $this->error = $e->getMessage();
+
+            return;
+        }
+
+        if ($calculo['monto'] > $this->faltaCentavos()) {
+            $this->error = 'El pago supera lo que falta cobrar ('.Dinero::formato(Dinero::pesos($this->faltaCentavos())).').';
+
+            return;
+        }
+
+        $this->pagos[] = ['entrada' => $entrada, 'calculo' => $calculo];
+        $this->resetFormularioPago();
+    }
+
+    public function quitarPago(int $indice): void
+    {
+        unset($this->pagos[$indice]);
+        $this->pagos = array_values($this->pagos);
+        $this->resetFormularioPago();
+    }
+
+    public function finalizarVenta(VentaService $ventas): void
+    {
+        $this->error = null;
+        $this->calcularTotales();
+
+        // Atajo: si falta cobrar y el formulario tiene un pago cargado, se agrega primero.
+        if ($this->faltaCentavos() > 0 && $this->pagoMonto !== '') {
+            $this->agregarPago($ventas);
+
+            if ($this->error) {
+                return;
+            }
+        }
+
+        if ($this->faltaCentavos() !== 0) {
+            $this->error = 'Falta cobrar '.Dinero::formato(Dinero::pesos($this->faltaCentavos())).'.';
 
             return;
         }
 
         try {
-            DB::transaction(function () {
-                // Crear venta
-                $venta = VentaModel::create([
-                    'lista_precio_id' => $this->listaId,
-                    'numero_venta' => VentaModel::generarNumeroVenta(),
-                    'fecha' => now(),
-                    'subtotal' => $this->subtotal,
-                    'descuento' => $this->descuento,
-                    'total' => $this->total,
-                    'cliente_nombre' => $this->clienteNombre ?: null,
-                    'cliente_documento' => $this->clienteDocumento ?: null,
-                    'metodo_pago' => $this->metodoPago,
-                ]);
+            $venta = $ventas->registrar(
+                $this->itemsParaServicio(),
+                array_map(fn ($p) => (array) ($p['entrada'] ?? []), $this->pagos),
+                $this->listaId,
+                ['nombre' => $this->clienteNombre, 'documento' => $this->clienteDocumento],
+                Dinero::pesos($this->descuentoManualCentavos),
+                $this->descuentoAutorizadoPorId ? Cajero::find($this->descuentoAutorizadoPorId) : null
+            );
+        } catch (CajaException $e) {
+            $this->error = $e->getMessage();
 
-                // Crear detalles y actualizar stock
-                foreach ($this->carrito as $item) {
-                    DetalleVenta::create([
-                        'venta_id' => $venta->id,
-                        'product_id' => $item['product_id'],
-                        'cantidad' => $item['cantidad'],
-                        'precio_unitario' => $item['precio_unitario'],
-                        'subtotal' => $item['subtotal'],
-                    ]);
-
-                    // Registrar movimiento de stock
-                    MovimientoStock::registrar(
-                        $item['product_id'],
-                        'venta',
-                        -$item['cantidad'],
-                        $venta->numero_venta
-                    );
-                }
-
-                $this->dispatch('venta-finalizada', ventaId: $venta->id, numeroVenta: $venta->numero_venta);
-                $this->resetearVenta();
-            });
-        } catch (\Exception $e) {
-            $this->dispatch('error', message: 'Error al procesar la venta: '.$e->getMessage());
+            return;
         }
+
+        // Fuera de la transacción: si hizo rollback no hay nada que sincronizar.
+        SincronizarPendientes::dispatch();
+
+        $vuelto = array_sum(array_map(fn ($p) => (int) ($p['calculo']['vuelto'] ?? 0), $this->pagos));
+
+        $this->dispatch('venta-finalizada', ventaId: $venta->id, numeroVenta: $venta->numero_venta);
+        $this->resetearVenta();
+        $this->ultimaVentaId = $venta->id;
+        $this->exito = "Venta {$venta->numero_venta} registrada · ".Dinero::formato($venta->total)
+            .($vuelto > 0 ? ' · Vuelto '.Dinero::formato(Dinero::pesos($vuelto)) : '');
+
+        // La venta ya está registrada: si la impresora falla se avisa, pero no se deshace nada.
+        $tickets = app(TicketService::class);
+
+        if ($tickets->imprimeAutomatico() && ($motivo = $tickets->imprimirVenta($venta)) !== null) {
+            $this->error = "No se imprimió el ticket: {$motivo}";
+        }
+    }
+
+    public function imprimirUltimoTicket(TicketService $tickets): void
+    {
+        $venta = $this->ultimaVentaId ? \App\Models\Venta::find($this->ultimaVentaId) : null;
+
+        if (! $venta) {
+            return;
+        }
+
+        $motivo = $tickets->imprimirVenta($venta);
+        $this->error = $motivo === null ? null : "No se imprimió el ticket: {$motivo}";
     }
 
     public function resetearVenta(): void
     {
-        $this->carrito = [];
-        $this->subtotal = 0;
-        $this->descuento = 0;
-        $this->total = 0;
-        $this->clienteNombre = '';
-        $this->clienteDocumento = '';
-        $this->metodoPago = 'efectivo';
-        $this->busqueda = '';
+        $this->reset(['carrito', 'subtotal', 'total', 'clienteNombre', 'clienteDocumento', 'busqueda', 'resultadosBusqueda', 'cobrando', 'pagos']);
+        $this->quitarDescuento();
+        $this->resetFormularioPago();
+    }
+
+    public function limpiarMensajes(): void
+    {
+        $this->error = null;
+        $this->exito = null;
+    }
+
+    // ------------------------------------------------------------------ Internos
+
+    /** @return array<int, array{product_id: int, cantidad: int}> */
+    private function itemsParaServicio(): array
+    {
+        return array_map(fn ($i) => ['product_id' => (int) $i['product_id'], 'cantidad' => (int) $i['cantidad']], $this->carrito);
+    }
+
+    /** @return array<string, mixed> */
+    private function entradaPago(): array
+    {
+        return [
+            'medio' => $this->pagoMedio,
+            'monto' => $this->pagoMonto === '' ? 0 : $this->pagoMonto,
+            'recibido' => $this->pagoMedio === 'efectivo' && $this->pagoRecibido !== '' ? $this->pagoRecibido : null,
+            'tarjeta' => $this->pagoTarjeta ?: null,
+            'banco' => $this->pagoBanco ?: null,
+            'cuotas' => (int) $this->pagoCuotas ?: 1,
+            'promocion_id' => $this->pagoPromocionId,
+            'referencia' => $this->pagoReferencia ?: null,
+        ];
+    }
+
+    private function faltaCentavos(): int
+    {
+        return Dinero::centavos($this->total) - $this->descuentoManualCentavos
+            - array_sum(array_map(fn ($p) => (int) ($p['calculo']['monto'] ?? 0), $this->pagos));
+    }
+
+    private function resetFormularioPago(): void
+    {
+        $this->pagoMedio = 'efectivo';
+        $this->pagoMonto = $this->cobrando && $this->faltaCentavos() > 0 ? (string) Dinero::pesos($this->faltaCentavos()) : '';
+        $this->pagoRecibido = '';
+        $this->pagoTarjeta = '';
+        $this->pagoBanco = '';
+        $this->pagoCuotas = '1';
+        $this->pagoPromocionId = null;
+        $this->pagoReferencia = '';
     }
 
     public function render()
     {
-        return view('livewire.pos.venta')->layout('layouts.pos');
+        $turno = app(CajaService::class)->turnoAbierto();
+
+        $promociones = collect();
+        $calculoPago = null;
+
+        if ($this->cobrando) {
+            $monto = Dinero::centavos($this->pagoMonto === '' ? 0 : $this->pagoMonto);
+
+            $promociones = PromocionBancaria::orderBy('nombre')->get()
+                ->filter(fn (PromocionBancaria $p) => $p->aplicaA($this->pagoMedio, $this->pagoTarjeta ?: null, $this->pagoBanco ?: null, $monto))
+                ->map(fn (PromocionBancaria $p) => ['promo' => $p, 'descuento' => $p->descuentoPara($monto)])
+                ->values();
+
+            // Vista previa del pago tal como quedaría registrado.
+            try {
+                $calculoPago = $monto > 0 ? app(VentaService::class)->calcularPago($this->entradaPago()) : null;
+            } catch (CajaException) {
+                $calculoPago = null;
+            }
+        }
+
+        return view('livewire.pos.venta', [
+            'turno' => $turno,
+            'cajeros' => $turno ? collect() : Cajero::orderBy('nombre')->get(['id', 'nombre', 'rol']),
+            'supervisores' => $this->cobrando ? Cajero::where('rol', 'supervisor')->orderBy('nombre')->get(['id', 'nombre']) : collect(),
+            'limiteDescuento' => VentaService::limiteDescuentoSinAutorizacion(),
+            'descuentoAutorizadoPor' => $this->descuentoAutorizadoPorId ? Cajero::find($this->descuentoAutorizadoPorId)?->nombre : null,
+            'imprimeDirecto' => app(ImpresoraTickets::class)->puedeImprimirDirecto(),
+            'falta' => Dinero::pesos(max(0, $this->faltaCentavos())),
+            'promocionesAplicables' => $promociones,
+            'calculoPago' => $calculoPago,
+            'bancosConocidos' => PromocionBancaria::whereNotNull('banco')->distinct()->orderBy('banco')->pluck('banco'),
+            'descuentoTotal' => Dinero::pesos(array_sum(array_map(fn ($p) => (int) ($p['calculo']['descuento'] ?? 0), $this->pagos))),
+        ])->layout('layouts.pos');
     }
 }

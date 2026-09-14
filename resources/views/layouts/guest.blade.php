@@ -11,8 +11,9 @@
 <body class="antialiased">
     {{ $slot }}
 
+    {{-- Livewire 4 ya incluye Alpine: cargarlo desde un CDN lo duplicaba y hacía depender
+         de internet la pantalla de instalación. Ver layouts/pos.blade.php. --}}
     @livewireScripts
-    <script src="//unpkg.com/alpinejs" defer></script>
 
     <style>
         [x-cloak] { display: none !important; }
