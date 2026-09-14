@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\Configuracion;
 use App\Models\Precio;
 use App\Models\Producto;
+use App\Services\EstadoCajaService;
 use App\Services\ManagerApiService;
 use App\Services\SyncService;
 use Illuminate\Console\Command;
@@ -24,6 +25,10 @@ class ComandosCommand extends Command
         if (! Configuracion::isConfigured()) {
             return self::SUCCESS;
         }
+
+        // El estado sale de este proceso y no del sync de stock a propósito: si el sync se
+        // traba, este sigue corriendo y el Manager ve que el stock quedó viejo.
+        $managerApi->reportarEstado(app(EstadoCajaService::class)->reporte());
 
         $respuesta = $managerApi->obtenerComandos();
 

@@ -347,6 +347,26 @@ class ManagerApiService
     }
 
     /**
+     * Estado de la caja para el panel de salud del Manager. Corto y sin reintentos: se
+     * manda cada minuto y si uno se pierde no importa.
+     */
+    public function reportarEstado(array $estado): array
+    {
+        try {
+            $response = Http::connectTimeout(5)
+                ->timeout(10)
+                ->acceptJson()
+                ->withHeaders(VersionPos::cabeceras())
+                ->withToken((string) $this->token)
+                ->post("{$this->baseUrl}/pos/estado", $estado);
+
+            return ['success' => $response->successful()];
+        } catch (\Exception $e) {
+            return ['success' => false];
+        }
+    }
+
+    /**
      * Datos del emisor y si esta caja factura.
      */
     public function emisorFacturacion(): array
