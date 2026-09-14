@@ -7,6 +7,7 @@ use App\Contracts\ImpresoraTickets;
 use App\Services\Impresion\CajonDineroWindows;
 use App\Services\Impresion\ImpresoraNativePHP;
 use App\Services\Impresion\ImpresoraNavegador;
+use App\Support\ConexionSqlite;
 use App\Support\VersionPos;
 use Illuminate\Support\ServiceProvider;
 
@@ -21,5 +22,11 @@ class AppServiceProvider extends ServiceProvider
 
         // El cajón va por la cola de Windows: funciona igual en la clásica y en escritorio.
         $this->app->bind(CajonDinero::class, CajonDineroWindows::class);
+    }
+
+    public function boot(): void
+    {
+        // Corre después del provider de NativePHP, que arma la conexión `nativephp`.
+        ConexionSqlite::ajustarEscrituras(config('database.default'));
     }
 }
