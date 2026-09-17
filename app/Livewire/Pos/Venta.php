@@ -347,6 +347,7 @@ class Venta extends Component
             $this->carrito[] = [
                 'product_id' => $producto->id,
                 'nombre' => $producto->modelo_nombre ?? $producto->nombre,
+                'imagen' => $producto->imagen_url,
                 'codigo' => $producto->codigo_interno ?? $producto->codigo_barras,
                 // Para una variante: modelo, "Negro / M" y el barcode. Simples: null.
                 'modelo_codigo' => $producto->modelo_codigo,

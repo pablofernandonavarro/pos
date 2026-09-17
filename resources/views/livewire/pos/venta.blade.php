@@ -4,14 +4,16 @@
     use App\Support\Dinero;
 @endphp
 
-<div class="flex h-full relative"
+{{-- En mobile las dos mitades se apilan (búsqueda arriba, carrito abajo) y scrollea este
+     contenedor; en escritorio vuelven a ser dos columnas fijas una al lado de la otra. --}}
+<div class="flex flex-col lg:flex-row h-full relative overflow-y-auto lg:overflow-hidden"
      x-data
      @keydown.window.f2.prevent="$wire.abrirCobro()"
      @keydown.window.escape="$wire.cobrando && $wire.cancelarCobro()">
 
     {{-- ===================== Caja cerrada: apertura ===================== --}}
     @if(!$turno)
-        <div class="absolute inset-0 z-40 bg-slate-900/95 flex items-center justify-center p-6">
+        <div class="fixed lg:absolute inset-0 z-40 bg-slate-900/95 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
             <form wire:submit="abrirCaja" class="w-full max-w-md bg-slate-800 border border-slate-700 rounded-2xl p-8 space-y-5 shadow-2xl">
                 <div class="text-center">
                     <p class="text-4xl mb-2">🔒</p>
@@ -64,7 +66,7 @@
     @endif
 
     {{-- ===================== Panel izquierdo: búsqueda ===================== --}}
-    <div class="flex-1 flex flex-col bg-slate-900 p-6">
+    <div class="lg:flex-1 flex flex-col bg-slate-900 p-4 lg:p-6">
         <div class="mb-6">
             <div class="relative">
                 <input
@@ -228,9 +230,9 @@
         @endif
 
         @if(empty($carrito))
-            <div class="flex-1 flex items-center justify-center">
+            <div class="flex-1 flex items-center justify-center py-10 lg:py-0">
                 <div class="text-center text-slate-500">
-                    <svg class="w-24 h-24 mx-auto mb-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-20 h-20 lg:w-24 lg:h-24 mx-auto mb-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
                     </svg>
                     <p class="text-xl mb-2">Carrito vacío</p>
@@ -241,129 +243,224 @@
     </div>
 
     {{-- ===================== Panel derecho: carrito ===================== --}}
-    <div class="w-[480px] bg-slate-800 border-l border-slate-700 flex flex-col">
-        <div class="p-6 border-b border-slate-700">
-            <h2 class="text-xl font-bold text-white mb-1">Carrito de venta</h2>
-            <p class="text-sm text-slate-400">{{ count($carrito) }} producto(s)</p>
+    @php
+        $unidadesCarrito = array_sum(array_column($carrito, 'cantidad'));
+    @endphp
+
+    {{-- Con el carrito vacío el panel desaparece en mobile: el vacío ya lo cuenta la mitad
+         de búsqueda y así la pantalla chica no arranca con media pantalla muerta. --}}
+    <div class="{{ empty($carrito) ? 'hidden lg:flex' : 'flex' }} flex-col w-full lg:w-[420px] xl:w-[480px] shrink-0 bg-slate-800 border-t lg:border-t-0 lg:border-l border-slate-700 lg:min-h-0">
+
+        {{-- Encabezado: título, contador y "vaciar" (antes era el botón Cancelar del pie) --}}
+        <div class="px-4 lg:px-5 pt-4 pb-3 border-b border-slate-700 flex items-center gap-3">
+            <div class="min-w-0">
+                <h2 class="text-lg font-bold text-white leading-tight">Carrito de venta</h2>
+                <p class="text-xs text-slate-400">
+                    {{ count($carrito) }} {{ count($carrito) === 1 ? 'producto' : 'productos' }}
+                    @if($unidadesCarrito !== count($carrito)) · {{ $unidadesCarrito }} unidades @endif
+                </p>
+            </div>
+            @if(!empty($carrito))
+                <button type="button" wire:click="resetearVenta" wire:confirm="¿Vaciar el carrito?"
+                        class="ml-auto shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-red-300 bg-red-500/10 hover:bg-red-500/20 ring-1 ring-red-500/30 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                    Vaciar
+                </button>
+            @endif
         </div>
 
-        <div class="flex-1 overflow-y-auto p-6 space-y-4">
-            @foreach($carrito as $index => $item)
-                <div wire:key="item-{{ $item['product_id'] }}" class="bg-slate-900 rounded-lg p-4 border border-slate-700">
-                    <div class="flex items-start justify-between mb-3">
-                        <div class="flex-1">
-                            <h3 class="text-white font-medium mb-1">{{ $item['nombre'] }}</h3>
-                            @if($item['variante'] ?? null)
-                                {{-- Variante: modelo, combinación y SKU, para saber exactamente qué se vende. --}}
-                                <p class="text-sm text-slate-300">{{ $item['modelo_codigo'] }} · <span class="font-semibold text-blue-200">{{ $item['variante'] }}</span></p>
-                                <p class="text-xs text-slate-500">SKU {{ $item['codigo'] }}@if($item['codigo_barras'] ?? null) · {{ $item['codigo_barras'] }}@endif</p>
-                            @else
-                                <p class="text-sm text-slate-400">{{ $item['codigo'] }}</p>
-                            @endif
-                        </div>
-                        <button wire:click="eliminarItem({{ $index }})" class="text-red-400 hover:text-red-300 transition-colors" title="Quitar">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                        </button>
-                    </div>
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-2">
-                            <button wire:click="decrementarCantidad({{ $index }})" class="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors">−</button>
-                            <span class="w-12 text-center text-white font-medium">{{ $item['cantidad'] }}</span>
-                            <button wire:click="incrementarCantidad({{ $index }})" class="w-8 h-8 flex items-center justify-center bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors">+</button>
-                        </div>
-                        <div class="text-right">
-                            <div class="text-sm text-slate-400">{{ Dinero::formato($item['precio_unitario']) }} c/u</div>
-                            <div class="text-lg font-bold text-green-400">{{ Dinero::formato($item['subtotal']) }}</div>
-                        </div>
-                    </div>
-                </div>
-            @endforeach
-        </div>
-
+        {{-- Cliente: arriba de todo, como la referencia. Solo con carrito cargado, igual que antes. --}}
         @if(!empty($carrito))
-            <div class="p-6 border-t border-slate-700 space-y-4">
+            <div class="px-4 lg:px-5 py-3 border-b border-slate-700">
                 @if($clienteElegido)
                     {{-- Cliente del padrón: los datos salen de su ficha (se editan en el Manager). --}}
-                    <div class="p-3 rounded-lg bg-slate-900 border border-blue-700/60 space-y-1">
-                        <div class="flex items-start justify-between gap-2">
-                            <div class="flex items-center gap-2">
-                                @if($letraFactura)
-                                    <span class="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-white text-slate-900 text-lg font-black" title="Tipo de factura">{{ $letraFactura }}</span>
-                                @endif
-                                <div>
-                                    <div class="text-white font-medium">{{ $clienteElegido->nombre }}</div>
-                                    <div class="text-xs text-slate-400">{{ $clienteElegido->documentoFormateado() }} · {{ FacturacionService::CONDICIONES_IVA[$clienteElegido->condicion_iva] ?? '' }}</div>
-                                </div>
-                            </div>
-                            <button type="button" wire:click="quitarCliente" class="text-xs text-slate-400 hover:text-white">Quitar</button>
+                    <div class="flex items-start gap-3">
+                        <div class="shrink-0 w-10 h-10 rounded-full bg-blue-500/15 ring-1 ring-blue-500/40 flex items-center justify-center text-blue-200 font-bold">
+                            {{ mb_strtoupper(mb_substr($clienteElegido->nombre, 0, 1)) }}
                         </div>
-                        @if($clienteElegido->cuenta_corriente)
-                            <div class="text-xs {{ $saldoCliente > 0 ? 'text-amber-300' : 'text-slate-400' }}">
-                                Cuenta corriente: debe {{ Dinero::formato($saldoCliente) }}
-                                · {{ $disponibleCliente === null ? 'sin límite' : 'disponible '.Dinero::formato($disponibleCliente) }}
+                        <div class="min-w-0 flex-1">
+                            <div class="flex items-center gap-2">
+                                <span class="text-white font-semibold truncate">{{ $clienteElegido->nombre }}</span>
+                                @if($letraFactura)
+                                    <span class="shrink-0 w-6 h-6 flex items-center justify-center rounded bg-white text-slate-900 text-xs font-black" title="Tipo de factura">{{ $letraFactura }}</span>
+                                @endif
                             </div>
-                        @endif
+                            <div class="text-xs text-emerald-400 truncate">
+                                {{ $clienteElegido->documentoFormateado() }} · {{ FacturacionService::CONDICIONES_IVA[$clienteElegido->condicion_iva] ?? '' }}
+                            </div>
+                            @if($clienteElegido->cuenta_corriente)
+                                <div class="mt-0.5 text-xs {{ $saldoCliente > 0 ? 'text-amber-300' : 'text-slate-400' }}">
+                                    Cuenta corriente: debe {{ Dinero::formato($saldoCliente) }}
+                                    · {{ $disponibleCliente === null ? 'sin límite' : 'disponible '.Dinero::formato($disponibleCliente) }}
+                                </div>
+                            @endif
+                        </div>
+                        <button type="button" wire:click="quitarCliente" title="Quitar cliente"
+                                class="shrink-0 w-9 h-9 lg:w-8 lg:h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors">
+                            ✕
+                        </button>
                     </div>
                 @else
-                    <div class="relative">
-                        <input type="text" wire:model.live.debounce.300ms="clienteBusqueda" placeholder="Buscar cliente registrado (opcional)"
-                               class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        @if($resultadosClientes->isNotEmpty())
-                            <div class="absolute z-20 bottom-full mb-1 w-full bg-slate-900 border border-slate-700 rounded-lg overflow-hidden shadow-xl">
-                                @foreach($resultadosClientes as $c)
-                                    <button type="button" wire:click="elegirCliente({{ $c->id }})" wire:key="cliente-{{ $c->id }}"
-                                            class="w-full px-3 py-2 text-left text-sm text-slate-200 hover:bg-slate-700">
-                                        {{ $c->nombre }} <span class="text-slate-500">{{ $c->documentoFormateado() }}</span>
-                                        @if($c->cuenta_corriente)<span class="ml-1 text-xs text-blue-300">cta. cte.</span>@endif
-                                    </button>
-                                @endforeach
+                    {{-- Plegado por defecto para no comer altura; abierto si hay factura que emitir. --}}
+                    <div x-data="{ abierto: {{ $letraFactura ? 'true' : 'false' }} }">
+                        <button type="button" @click="abierto = !abierto"
+                                class="w-full flex items-center gap-2 text-left text-sm text-slate-300 hover:text-white transition-colors">
+                            <span class="shrink-0 w-9 h-9 lg:w-8 lg:h-8 rounded-full bg-slate-900 ring-1 ring-slate-700 flex items-center justify-center">
+                                <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                            </span>
+                            <span class="flex-1 min-w-0">
+                                <span class="block font-medium">Consumidor final</span>
+                                <span class="block text-xs text-slate-500">Tocá para asignar un cliente o datos de factura</span>
+                            </span>
+                            @if($letraFactura)
+                                <span class="shrink-0 w-6 h-6 flex items-center justify-center rounded bg-white text-slate-900 text-xs font-black" title="Tipo de factura">{{ $letraFactura }}</span>
+                            @endif
+                            <svg class="shrink-0 w-4 h-4 text-slate-500 transition-transform" :class="{ 'rotate-180': abierto }" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                        </button>
+
+                        <div x-show="abierto" x-cloak x-transition class="mt-3 space-y-2">
+                            <div class="relative">
+                                <input type="text" wire:model.live.debounce.300ms="clienteBusqueda" placeholder="Buscar cliente registrado (opcional)"
+                                       class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                @if($resultadosClientes->isNotEmpty())
+                                    {{-- El bloque quedó arriba del panel: el desplegable ahora abre hacia abajo. --}}
+                                    <div class="absolute z-20 top-full mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg overflow-hidden shadow-xl">
+                                        @foreach($resultadosClientes as $c)
+                                            <button type="button" wire:click="elegirCliente({{ $c->id }})" wire:key="cliente-{{ $c->id }}"
+                                                    class="w-full px-3 py-2.5 text-left text-sm text-slate-200 hover:bg-slate-700 transition-colors">
+                                                {{ $c->nombre }} <span class="text-slate-500">{{ $c->documentoFormateado() }}</span>
+                                                @if($c->cuenta_corriente)<span class="ml-1 text-xs text-blue-300">cta. cte.</span>@endif
+                                            </button>
+                                        @endforeach
+                                    </div>
+                                @endif
                             </div>
-                        @endif
-                    </div>
-                    @if($letraFactura)
-                        <div class="flex items-center gap-2">
-                            <span class="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-white text-slate-900 text-xl font-black" title="Tipo de factura">{{ $letraFactura }}</span>
-                            <select wire:model.live="clienteCondicionIva"
-                                    class="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                                @foreach(FacturacionService::CONDICIONES_IVA as $codigo => $etiqueta)
-                                    <option value="{{ $codigo }}">{{ $etiqueta }}</option>
-                                @endforeach
-                            </select>
+                            @if($letraFactura)
+                                <div class="flex items-center gap-2">
+                                    <span class="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-white text-slate-900 text-xl font-black" title="Tipo de factura">{{ $letraFactura }}</span>
+                                    <select wire:model.live="clienteCondicionIva"
+                                            class="flex-1 px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        @foreach(FacturacionService::CONDICIONES_IVA as $codigo => $etiqueta)
+                                            <option value="{{ $codigo }}">{{ $etiqueta }}</option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            @endif
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <input type="text" wire:model="clienteNombre" maxlength="150"
+                                       placeholder="{{ $letraFactura && $clienteCondicionIva !== '5' ? 'Razón social' : 'Cliente (opcional)' }}"
+                                       class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                <input type="text" wire:model="clienteDocumento" maxlength="30" inputmode="numeric"
+                                       placeholder="{{ $letraFactura && $clienteCondicionIva !== '5' ? 'CUIT' : 'DNI / CUIT (opcional)' }}"
+                                       class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
                         </div>
-                    @endif
-                    <div class="grid grid-cols-2 gap-2">
-                        <input type="text" wire:model="clienteNombre" maxlength="150"
-                               placeholder="{{ $letraFactura && $clienteCondicionIva !== '5' ? 'Razón social' : 'Cliente (opcional)' }}"
-                               class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <input type="text" wire:model="clienteDocumento" maxlength="30" inputmode="numeric"
-                               placeholder="{{ $letraFactura && $clienteCondicionIva !== '5' ? 'CUIT' : 'DNI / CUIT (opcional)' }}"
-                               class="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                     </div>
                 @endif
+            </div>
+        @endif
 
-                <div class="flex justify-between text-2xl font-bold text-white pt-2 border-t border-slate-700">
-                    <span>Total</span>
-                    <span class="text-green-400">{{ Dinero::formato($total) }}</span>
-                </div>
+        {{-- Lista de items --}}
+        @if(empty($carrito))
+            <div class="flex-1 flex flex-col items-center justify-center text-center px-6 py-12 text-slate-500">
+                <svg class="w-14 h-14 mb-3 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
+                </svg>
+                <p class="font-medium text-slate-400">Todavía no cargaste nada</p>
+                <p class="text-xs mt-1">Escaneá o buscá un producto para empezar</p>
+            </div>
+        @else
+            <div class="lg:flex-1 lg:min-h-0 lg:overflow-y-auto px-4 lg:px-5 divide-y divide-slate-700/70">
+                @foreach($carrito as $index => $item)
+                    @php $sinMasStock = ($item['stock_disponible'] ?? null) !== null && $item['cantidad'] >= $item['stock_disponible']; @endphp
+                    <div wire:key="item-{{ $item['product_id'] }}" class="flex gap-3 py-3">
+                        {{-- Foto del producto con la cantidad en burbuja, como en la referencia. --}}
+                        <div class="relative shrink-0">
+                            <div class="w-14 h-14 rounded-xl bg-slate-900 ring-1 ring-slate-700 overflow-hidden flex items-center justify-center">
+                                @if($item['imagen'] ?? null)
+                                    <img src="{{ $item['imagen'] }}" alt="{{ $item['nombre'] }}" loading="lazy" class="w-full h-full object-cover">
+                                @else
+                                    {{-- Sin foto: silueta neutra para que la grilla no se desarme. --}}
+                                    <svg class="w-6 h-6 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                                    </svg>
+                                @endif
+                            </div>
+                            <span class="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1.5 flex items-center justify-center rounded-full bg-blue-600 text-white text-[11px] font-bold ring-2 ring-slate-800 tabular-nums">
+                                {{ $item['cantidad'] }}
+                            </span>
+                        </div>
 
-                <div class="flex gap-3">
-                    <button wire:click="resetearVenta" wire:confirm="¿Vaciar el carrito?"
-                            class="flex-1 px-6 py-4 bg-slate-900 hover:bg-slate-700 text-white rounded-xl font-medium transition-colors">
-                        Cancelar
-                    </button>
-                    <button wire:click="abrirCobro"
-                            class="flex-[2] px-6 py-4 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-xl font-bold text-lg transition-all shadow-lg">
-                        Cobrar <span class="text-sm font-normal opacity-75">(F2)</span>
-                    </button>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-start gap-3">
+                                <div class="flex-1 min-w-0">
+                                    <h3 class="text-white font-medium leading-tight truncate">{{ $item['nombre'] }}</h3>
+                                    @if($item['variante'] ?? null)
+                                        {{-- Variante: combinación, modelo y SKU, para saber exactamente qué se vende. --}}
+                                        <p class="mt-1 text-xs text-slate-400 truncate">
+                                            <span class="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-200 font-semibold">{{ $item['variante'] }}</span>
+                                            <span class="ml-1">{{ $item['modelo_codigo'] }} · SKU {{ $item['codigo'] }}@if($item['codigo_barras'] ?? null) · {{ $item['codigo_barras'] }}@endif</span>
+                                        </p>
+                                    @elseif($item['codigo'] ?? null)
+                                        <p class="mt-1 text-xs text-slate-500 truncate">{{ $item['codigo'] }}</p>
+                                    @endif
+                                </div>
+                                <div class="text-right shrink-0">
+                                    <div class="font-bold text-white tabular-nums">{{ Dinero::formato($item['subtotal']) }}</div>
+                                    <div class="text-[11px] text-slate-500 tabular-nums">{{ Dinero::formato($item['precio_unitario']) }} c/u</div>
+                                </div>
+                            </div>
+
+                            <div class="mt-2 flex items-center gap-2">
+                                {{-- Botones grandes a propósito: se usan con el dedo en mostrador. --}}
+                                <div class="flex items-center rounded-lg bg-slate-900 ring-1 ring-slate-700 overflow-hidden">
+                                    <button type="button" wire:click="decrementarCantidad({{ $index }})" title="Quitar uno"
+                                            class="w-10 h-10 lg:w-8 lg:h-8 flex items-center justify-center text-slate-200 hover:bg-slate-700 transition-colors text-lg leading-none">−</button>
+                                    <span class="w-9 text-center text-white font-semibold text-sm tabular-nums">{{ $item['cantidad'] }}</span>
+                                    <button type="button" wire:click="incrementarCantidad({{ $index }})" title="Agregar uno"
+                                            class="w-10 h-10 lg:w-8 lg:h-8 flex items-center justify-center text-slate-200 hover:bg-slate-700 transition-colors text-lg leading-none">+</button>
+                                </div>
+
+                                @if($sinMasStock)
+                                    <span class="text-[11px] text-amber-400 truncate">Sin más stock</span>
+                                @endif
+
+                                <button type="button" wire:click="eliminarItem({{ $index }})" title="Quitar del carrito"
+                                        class="ml-auto shrink-0 w-10 h-10 lg:w-8 lg:h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-red-300 hover:bg-red-500/10 transition-colors">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+
+            {{-- Pie: total y cobro. En mobile queda pegado al borde inferior mientras se scrollea. --}}
+            <div class="mt-auto sticky bottom-0 lg:static z-20 border-t border-slate-700 bg-slate-800/95 backdrop-blur px-4 lg:px-5 py-4 space-y-3">
+                @if($descuentoTotal > 0)
+                    <div class="flex justify-between text-sm text-amber-300">
+                        <span>Descuentos</span>
+                        <span class="tabular-nums">−{{ Dinero::formato($descuentoTotal) }}</span>
+                    </div>
+                @endif
+                <div class="flex items-baseline justify-between">
+                    <span class="text-sm font-medium text-slate-300">Total</span>
+                    <span class="text-3xl font-extrabold text-green-400 tabular-nums">{{ Dinero::formato($total) }}</span>
                 </div>
+                <button wire:click="abrirCobro"
+                        class="w-full px-6 py-4 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-xl font-bold text-lg transition-all shadow-lg shadow-blue-900/40">
+                    Cobrar <span class="text-sm font-normal opacity-75">(F2)</span>
+                </button>
             </div>
         @endif
     </div>
 
     {{-- ===================== Modal de cobro ===================== --}}
     @if($cobrando)
-        <div class="absolute inset-0 z-50 bg-black/70 flex items-center justify-center p-6">
-            <div class="w-full max-w-4xl bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl flex max-h-full overflow-hidden">
+        {{-- fixed en mobile: el contenedor raíz scrollea, y con absolute el modal quedaba
+             centrado sobre el alto total scrolleable en vez de sobre lo que se ve. --}}
+        <div class="fixed lg:absolute inset-0 z-50 bg-black/70 flex items-center justify-center p-3 sm:p-6">
+            <div class="w-full max-w-4xl bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl flex flex-col lg:flex-row max-h-full overflow-y-auto lg:overflow-hidden">
 
                 {{-- Formulario del pago --}}
                 <div class="flex-1 p-6 space-y-4 overflow-y-auto">
@@ -524,7 +621,7 @@
                 </div>
 
                 {{-- Resumen del cobro --}}
-                <div class="w-80 bg-slate-900 border-l border-slate-700 p-6 flex flex-col">
+                <div class="w-full lg:w-80 shrink-0 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-700 p-6 flex flex-col">
                     <div class="space-y-1 mb-4">
                         <div class="flex justify-between text-slate-400"><span>Total</span><span>{{ Dinero::formato($total) }}</span></div>
                         @if($descuentoManualCentavos > 0)
