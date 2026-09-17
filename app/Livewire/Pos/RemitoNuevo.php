@@ -37,8 +37,14 @@ class RemitoNuevo extends Component
         }
     }
 
-    public function agregarProducto(int $productoId, int $cantidad): void
+    /**
+     * $cantidad llega como string: viene del value de un <input> HTML vía
+     * $event.currentTarget.previousElementSibling.value, no de wire:model.
+     */
+    public function agregarProducto(int $productoId, string $cantidad): void
     {
+        $cantidad = (int) $cantidad;
+
         if ($cantidad > 0) {
             $this->items[$productoId] = ($this->items[$productoId] ?? 0) + $cantidad;
         }
