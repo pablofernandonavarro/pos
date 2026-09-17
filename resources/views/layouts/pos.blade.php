@@ -45,8 +45,11 @@
                             <a href="{{ route('pos.stock') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.stock') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
                                 Stock
                             </a>
-                            <a href="{{ route('pos.remitos') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.remitos') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
+                            <a href="{{ route('pos.remitos') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.remitos*') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
                                 Remitos
+                            </a>
+                            <a href="{{ route('pos.remitos.nuevo') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.remitos.nuevo') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
+                                ➕ Remito
                             </a>
                         </nav>
                     @endif

@@ -6,6 +6,7 @@ use App\Livewire\Configuracion\Inicial;
 use App\Livewire\Pos\Ajustes;
 use App\Livewire\Pos\Caja;
 use App\Livewire\Pos\Productos;
+use App\Livewire\Pos\RemitoNuevo;
 use App\Livewire\Pos\Remitos;
 use App\Livewire\Pos\Sincronizacion;
 use App\Livewire\Pos\Stock;
@@ -35,8 +36,9 @@ Route::middleware(RequiereCajaConfigurada::class)->group(function () {
     Route::get('/cobros/{cobro}/recibo', [InformeCajaController::class, 'cobro'])->name('pos.cobro.recibo');
     Route::get('/ajustes', Ajustes::class)->name('pos.ajustes');
 
-    // Remitos por recibir
+    // Remitos
     Route::get('/remitos', Remitos::class)->name('pos.remitos');
+    Route::get('/remitos/nuevo', RemitoNuevo::class)->name('pos.remitos.nuevo');
 
     // Sincronización
     Route::get('/sync', Sincronizacion::class)->name('pos.sync');
