@@ -79,6 +79,16 @@ class SyncCommand extends Command
             ? $this->info("🧑 Clientes: {$clientes['cantidad']}")
             : $this->warn('⚠️  Clientes: '.($clientes['error'] ?? 'error desconocido'));
 
+        $sucursales = $syncService->syncSucursales();
+        $sucursales['success']
+            ? $this->info("🏢 Sucursales: {$sucursales['cantidad']}")
+            : $this->warn('⚠️  Sucursales: '.($sucursales['error'] ?? 'error desconocido'));
+
+        $configRemitos = $syncService->syncConfiguracionRemitos();
+        $configRemitos['success']
+            ? $this->info('⚙️  Configuración de remitos sincronizada')
+            : $this->warn('⚠️  Configuración de remitos: '.($configRemitos['error'] ?? 'error desconocido'));
+
         // Facturación: si sigue activa y el resultado de las facturas que quedaron pendientes.
         $facturacion = $syncService->syncFacturacion();
 

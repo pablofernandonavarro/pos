@@ -6,7 +6,6 @@ use App\Models\Cajero;
 use App\Models\Cliente;
 use App\Models\CobroCuentaCorriente;
 use App\Models\Configuracion;
-use App\Models\DetalleVenta;
 use App\Models\Devolucion;
 use App\Models\ListaPrecio;
 use App\Models\MovimientoStock;
@@ -14,6 +13,7 @@ use App\Models\PagoVenta;
 use App\Models\Precio;
 use App\Models\Producto;
 use App\Models\PromocionBancaria;
+use App\Models\Sucursal;
 use App\Models\TurnoCaja;
 use App\Models\Venta;
 use Illuminate\Support\Carbon;
@@ -27,11 +27,16 @@ class SyncService
 
     public function __construct(
         private readonly ManagerApiService $managerApi
-    ) {
-    }
+    ) {}
 
     /**
      * Sincronización completa inicial (productos, precios, stock).
+     *
+     * Sin una transacción alrededor: con 200.000 productos la descarga lleva minutos y una
+     * transacción abierta durante las llamadas HTTP bloqueaba la base (las ventas daban
+     * "database is locked") y ante un corte descartaba todo lo bajado. Cada paso queda
+     * consistente por sí solo: productos confirma página por página y retoma donde quedó,
+     * precios reemplaza la tabla en una transacción corta al final y el stock es idempotente.
      */
     public function syncInicial(): array
     {
@@ -40,8 +45,6 @@ class SyncService
             'precios' => ['success' => false, 'cantidad' => 0],
             'stock' => ['success' => false, 'cantidad' => 0],
         ];
-
-        DB::beginTransaction();
 
         try {
             // 1. Sincronizar productos
@@ -68,21 +71,20 @@ class SyncService
                 throw new \Exception($stockResult['error'] ?? 'Error sincronizando stock');
             }
 
-            DB::commit();
-
-            // Fuera de la transacción y sin abortar: sin promociones la caja vende igual,
-            // y el pull de cada minuto las vuelve a intentar.
+            // Sin abortar: sin promociones la caja vende igual, y el pull de cada minuto las
+            // vuelve a intentar.
             $resultados['promociones'] = $this->syncPromociones();
             $resultados['cajeros'] = $this->syncCajeros();
             $resultados['facturacion'] = $this->syncFacturacion();
             $resultados['clientes'] = $this->syncClientes();
+            $resultados['sucursales'] = $this->syncSucursales();
+            $resultados['configuracion_remitos'] = $this->syncConfiguracionRemitos();
 
             return [
                 'success' => true,
                 'resultados' => $resultados,
             ];
         } catch (\Exception $e) {
-            DB::rollBack();
             Log::error('Error en sincronización inicial', ['error' => $e->getMessage()]);
 
             return [
@@ -98,80 +100,218 @@ class SyncService
      * lo que cambió desde la última (updated_since). Corre cada 5 minutos (`pos:sync
      * --productos`): sin eso un producto dado de alta en el Manager (a mano o por Excel) no
      * llegaba a la caja hasta un "Sincronizar" manual.
+     *
+     * Por páginas de PRODUCTOS_POR_PAGINA con cursor: nunca se tiene el catálogo entero en
+     * memoria ni en una sola respuesta. Cada página se guarda junto con el cursor siguiente
+     * en la misma transacción (`sync_productos_progreso`), así un corte (red, app cerrada)
+     * retoma desde la última página confirmada. La marca se mueve recién con la última.
      */
     public function syncProductos(): array
     {
-        $ultimaSync = Configuracion::get('ultima_sincronizacion_productos');
-        $pedidoAt = now();
+        // Scheduler, botón "Sincronizar" y órdenes del Manager pueden coincidir: dos descargas
+        // a la vez no rompen nada (todo es upsert por id) pero duplican el trabajo.
+        $candado = Cache::lock('pos-sync-productos', 20 * 60);
 
-        $response = $this->managerApi->syncProductos($ultimaSync);
-
-        if (! $response['success']) {
-            return $response;
+        if (! $candado->get()) {
+            return ['success' => false, 'error' => 'Ya hay una sincronización de productos en curso'];
         }
 
-        $productos = $response['data'];
+        try {
+            return $this->bajarProductos();
+        } finally {
+            $candado->release();
+        }
+    }
+
+    /**
+     * @return array{success: bool, cantidad?: int, error?: string}
+     */
+    private function bajarProductos(): array
+    {
+        $marca = Configuracion::get('ultima_sincronizacion_productos');
+        $progreso = json_decode((string) Configuracion::get(self::PROGRESO_PRODUCTOS), true);
+
+        // Una descarga cortada se retoma solo si es la misma (mismo updated_since).
+        if (! is_array($progreso) || ($progreso['desde'] ?? null) !== $marca) {
+            $progreso = ['desde' => $marca, 'cursor' => null];
+
+            // Catálogo completo sobre una caja con productos: primero se corrigen ids corridos.
+            // Solo al empezar: al retomar ya se hizo.
+            if ($marca === null && Producto::query()->exists()) {
+                $realineo = $this->realinearContraCatalogoCompleto();
+
+                if (! $realineo['success']) {
+                    return $realineo;
+                }
+            }
+        }
+
+        $pedidoAt = now();
         $sincronizados = 0;
 
-        // Solo con el catálogo completo: con un delta no se ve el catálogo entero y el
-        // emparejamiento podría mover un producto a un id que otro necesita.
-        if ($ultimaSync === null) {
-            $this->realinearIdsDeProductos($productos);
-        }
+        do {
+            $respuesta = $this->managerApi->pagina('productos', [
+                'limit' => self::PRODUCTOS_POR_PAGINA,
+                'cursor' => $progreso['cursor'],
+                'updated_since' => $progreso['desde'],
+                'incluir_inactivos' => 1,
+            ]);
 
-        foreach ($productos as $productoData) {
-            // El id tiene que ser el del Manager: es el que viaja en las ventas y el que
-            // usa el stock. updateOrCreate() no sirve porque 'id' no es fillable, se
-            // descartaba en silencio y SQLite asignaba su propio autoincremental.
-            $producto = Producto::findOrNew($productoData['id']);
+            if (! $respuesta['success']) {
+                // Cursor rechazado: la próxima corrida empieza de nuevo en vez de insistir.
+                if (($respuesta['status'] ?? null) === 422 && $progreso['cursor'] !== null) {
+                    Configuracion::set(self::PROGRESO_PRODUCTOS, null);
+                }
 
-            if (! $producto->exists) {
-                // El stock real lo trae syncStock. A uno existente no se le pisa: si el
-                // pull de stock falla, la caja no queda con todo el catálogo en cero.
-                $producto->stock = 0;
+                return $respuesta;
             }
 
-            $producto->forceFill([
-                'id' => $productoData['id'],
-                'nombre' => $productoData['nombre'],
-                'codigo_interno' => $productoData['codigo_interno'] ?? null,
-                'codigo_barras' => $productoData['codigo_barras'] ?? null,
-                'busqueda' => $productoData['busqueda'] ?? $productoData['nombre'],
-                'precio' => $productoData['precio'] ?? 0,
-                'costo' => $productoData['costo'] ?? 0,
-                'stock_critico' => $productoData['stock_critico'] ?? 0,
-                'imagen_url' => $productoData['imagen_url'] ?? null,
-                'descripcion_web' => $productoData['descripcion_web'] ?? null,
-                'marca' => $productoData['marca'] ?? null,
-                'color' => $productoData['color'] ?? null,
-                'n_talle' => $productoData['n_talle'] ?? null,
-                'genero' => $productoData['genero'] ?? null,
-                'n_grupo' => $productoData['n_grupo'] ?? null,
-                'n_subgrupo' => $productoData['n_subgrupo'] ?? null,
-                'n_temporada' => $productoData['n_temporada'] ?? null,
-                'product_type' => $productoData['product_type'] ?? 'simple',
-                'parent_id' => $productoData['parent_id'] ?? null,
-                'modelo_codigo' => $productoData['parent_codigo_interno'] ?? null,
-                'modelo_nombre' => $productoData['parent_nombre'] ?? null,
-                'es_vendible' => $productoData['es_vendible'] ?? true,
-                'activo' => true,
-                'sincronizado_at' => now(),
-            ])->save();
+            $json = $respuesta['json'];
+            // Un Manager anterior a la paginación manda todo junto y sin next_cursor.
+            $legado = ! array_key_exists('next_cursor', $json);
+            $siguiente = $legado ? null : $json['next_cursor'];
 
-            $sincronizados++;
-        }
+            DB::transaction(function () use ($json, $legado, $siguiente, $progreso, $pedidoAt, &$sincronizados) {
+                $sincronizados += $this->aplicarPaginaDeProductos($json['data'] ?? []);
 
-        // La marca se compara con el updated_at del Manager, así que se usa su reloj
-        // (synced_at) y no el de la caja. Con 2 minutos de solape: el Manager arma synced_at
-        // después de consultar, y un producto guardado en ese medio quedaría afuera para
-        // siempre. Volver a bajar un par de productos no cambia nada.
-        $marca = ! empty($response['synced_at']) ? Carbon::parse($response['synced_at']) : $pedidoAt;
-        Configuracion::set('ultima_sincronizacion_productos', $marca->subMinutes(2)->toIso8601String());
+                if ($siguiente) {
+                    Configuracion::set(self::PROGRESO_PRODUCTOS, json_encode([...$progreso, 'cursor' => $siguiente]));
+
+                    return;
+                }
+
+                Configuracion::set(self::PROGRESO_PRODUCTOS, null);
+                Configuracion::set('ultima_sincronizacion_productos', $this->marcaDeProductos($json, $legado, $pedidoAt));
+            });
+
+            $progreso['cursor'] = $siguiente;
+        } while ($siguiente);
 
         return [
             'success' => true,
             'cantidad' => $sincronizados,
         ];
+    }
+
+    /**
+     * La marca se compara con el updated_at del Manager, así que se usa su reloj (synced_at)
+     * y no el de la caja. El Manager ya le resta 15 minutos de margen (transacciones largas);
+     * uno anterior no, y ahí se restan 2 minutos de solape como antes. Volver a bajar un par
+     * de productos no cambia nada.
+     *
+     * @param  array<string, mixed>  $json
+     */
+    private function marcaDeProductos(array $json, bool $legado, Carbon $pedidoAt): string
+    {
+        $marca = ! empty($json['synced_at']) ? Carbon::parse($json['synced_at']) : $pedidoAt->copy();
+
+        return ($legado ? $marca->subMinutes(2) : $marca)->toIso8601String();
+    }
+
+    /**
+     * Upsert de una página por el id del Manager: es el que viaja en las ventas y el que usa
+     * el stock (con updateOrCreate() el id, que no es fillable, se descartaba en silencio y
+     * SQLite asignaba su propio autoincremental). Un solo INSERT … ON CONFLICT por tanda en
+     * vez de un find + save por producto; los triggers de productos_fts corren igual.
+     *
+     * El stock de un producto existente no se toca (lo mueven las ventas y syncStock); uno
+     * nuevo entra con el de su sucursal más lo movido offline, así un catálogo rearmado no
+     * queda en cero mientras el delta de stock no lo trae.
+     *
+     * @param  array<int, array<string, mixed>>  $filas
+     */
+    private function aplicarPaginaDeProductos(array $filas): int
+    {
+        if ($filas === []) {
+            return 0;
+        }
+
+        $ids = array_map(fn (array $p) => (int) $p['id'], $filas);
+        $existentes = array_flip(DB::table('productos')->whereIn('id', $ids)->pluck('id')->all());
+        $pendientes = MovimientoStock::pendientesPorProducto(array_values(array_diff($ids, array_keys($existentes))));
+        $ahora = now()->toDateTimeString();
+        $registros = [];
+
+        foreach ($filas as $p) {
+            $id = (int) $p['id'];
+            $activo = (bool) ($p['activo'] ?? true);
+
+            // La baja de un producto que esta caja nunca tuvo no tiene nada que desactivar.
+            if (! $activo && ! isset($existentes[$id])) {
+                continue;
+            }
+
+            $registros[$id] = [
+                'id' => $id,
+                'nombre' => $p['nombre'],
+                'codigo_interno' => $p['codigo_interno'] ?? null,
+                'codigo_barras' => $p['codigo_barras'] ?? null,
+                'busqueda' => $p['busqueda'] ?? $p['nombre'],
+                'precio' => $p['precio'] ?? 0,
+                'costo' => $p['costo'] ?? 0,
+                'stock' => (int) ($p['stock'] ?? 0) + ($pendientes[$id] ?? 0),
+                'stock_critico' => $p['stock_critico'] ?? 0,
+                'imagen_url' => $p['imagen_url'] ?? null,
+                'descripcion_web' => $p['descripcion_web'] ?? null,
+                'marca' => $p['marca'] ?? null,
+                'color' => $p['color'] ?? null,
+                'n_talle' => $p['n_talle'] ?? null,
+                'genero' => $p['genero'] ?? null,
+                'n_grupo' => $p['n_grupo'] ?? null,
+                'n_subgrupo' => $p['n_subgrupo'] ?? null,
+                'n_temporada' => $p['n_temporada'] ?? null,
+                'product_type' => $p['product_type'] ?? 'simple',
+                'parent_id' => $p['parent_id'] ?? null,
+                'modelo_codigo' => $p['parent_codigo_interno'] ?? null,
+                'modelo_nombre' => $p['parent_nombre'] ?? null,
+                'es_vendible' => (bool) ($p['es_vendible'] ?? true),
+                'activo' => $activo,
+                'sincronizado_at' => $ahora,
+                'created_at' => $ahora,
+                'updated_at' => $ahora,
+            ];
+        }
+
+        $actualizar = array_values(array_diff(array_keys(reset($registros) ?: []), ['id', 'stock', 'created_at']));
+
+        foreach (array_chunk(array_values($registros), self::FILAS_POR_UPSERT) as $tanda) {
+            DB::table('productos')->upsert($tanda, ['id'], $actualizar);
+        }
+
+        return count($registros);
+    }
+
+    /**
+     * Baja el catálogo completo solo para emparejar ids (ver realinearIdsDeProductos). De cada
+     * producto guarda la firma y el código, no el producto entero: con 200.000 son unos
+     * 40 MB en vez de cientos. Pasa una sola vez en la vida de una caja vieja.
+     *
+     * @return array{success: bool, error?: string}
+     */
+    private function realinearContraCatalogoCompleto(): array
+    {
+        $firmas = [];
+        $codigos = [];
+        $cursor = null;
+
+        do {
+            $respuesta = $this->managerApi->pagina('productos', ['limit' => self::PRODUCTOS_POR_PAGINA, 'cursor' => $cursor]);
+
+            if (! $respuesta['success']) {
+                return $respuesta;
+            }
+
+            foreach ($respuesta['json']['data'] ?? [] as $p) {
+                $firmas[(int) $p['id']] = self::firmaDeProducto($p);
+                $codigos[(int) $p['id']] = trim((string) ($p['codigo_interno'] ?? ''));
+            }
+
+            $cursor = $respuesta['json']['next_cursor'] ?? null;
+        } while ($cursor);
+
+        $this->realinearIdsDeProductos($firmas, $codigos);
+
+        return ['success' => true];
     }
 
     /**
@@ -195,17 +335,16 @@ class SyncService
      *     con la misma firma y la fila se borra.
      *   - Productos que el Manager ya no manda: quedan inactivos, con su historial.
      *
-     * @param  array<int, array<string, mixed>>  $productosManager
+     * @param  array<int, string>  $firmaManager  id del Manager => firma
+     * @param  array<int, string>  $codigoDe  id del Manager => código interno
      */
-    private function realinearIdsDeProductos(array $productosManager): void
+    private function realinearIdsDeProductos(array $firmaManager, array $codigoDe): void
     {
-        $firmaManager = [];
+        ksort($firmaManager);
         $gruposManager = [];
 
-        foreach (collect($productosManager)->sortBy('id') as $productoData) {
-            $id = (int) $productoData['id'];
-            $firmaManager[$id] = self::firmaDeProducto($productoData);
-            $gruposManager[$firmaManager[$id]][] = $id;
+        foreach ($firmaManager as $id => $firma) {
+            $gruposManager[$firma][] = $id;
         }
 
         $locales = Producto::query()->orderBy('id')->get()
@@ -234,7 +373,6 @@ class SyncService
         }
 
         // 3. Por código inequívoco
-        $codigoDe = collect($productosManager)->mapWithKeys(fn ($p) => [(int) $p['id'] => trim((string) ($p['codigo_interno'] ?? ''))]);
         $libresPorCodigo = collect($libresManager)->keys()->groupBy(fn (int $id) => $codigoDe[$id])
             ->filter(fn ($ids, $codigo) => $codigo !== '' && $ids->count() === 1);
         $sinParPorCodigo = Producto::whereKey(array_keys(array_diff_key($locales, $destinos)))->get()
@@ -336,49 +474,75 @@ class SyncService
 
     /**
      * Sincroniza precios y listas desde el manager.
+     *
+     * Se reemplaza la tabla entera (un precio borrado en el Manager no deja rastro para un
+     * delta), pero sin dejar la caja sin precios mientras baja: las páginas van a una tabla
+     * temporal y el cambio es una transacción corta al final. Si la descarga se corta, la
+     * tabla `precios` queda como estaba.
      */
     public function syncPrecios(): array
     {
-        $response = $this->managerApi->syncPrecios();
+        DB::statement('CREATE TEMP TABLE IF NOT EXISTS precios_descarga (lista_precio_id INTEGER NOT NULL, product_id INTEGER NOT NULL, precio_override NUMERIC NOT NULL, vigencia_desde TEXT NULL, vigencia_hasta TEXT NULL)');
+        DB::table('precios_descarga')->delete();
 
-        if (! $response['success']) {
-            return $response;
-        }
+        try {
+            $listas = null;
+            $cursor = null;
 
-        $listas = $response['listas'];
-        $precios = $response['precios'];
+            do {
+                $respuesta = $this->managerApi->pagina('precios', ['limit' => self::PRECIOS_POR_PAGINA, 'cursor' => $cursor]);
 
-        // Sincronizar listas de precios
-        foreach ($listas as $listaData) {
-            ListaPrecio::updateOrCreate(
-                ['id' => $listaData['id']],
-                [
-                    'nombre' => $listaData['nombre'],
-                    'factor' => $listaData['factor'],
-                    'es_default' => $listaData['es_default'],
-                    'sincronizado_at' => now(),
-                ]
-            );
-        }
+                if (! $respuesta['success']) {
+                    return $respuesta;
+                }
 
-        $this->limpiarListasObsoletas(collect($listas)->pluck('id')->all());
+                $json = $respuesta['json'];
+                $listas ??= $json['listas'] ?? [];
+                $cursor = $json['next_cursor'] ?? null;
 
-        // Limpiar precios anteriores
-        Precio::truncate();
+                foreach (array_chunk($json['precios'] ?? [], self::FILAS_POR_UPSERT) as $tanda) {
+                    DB::table('precios_descarga')->insert(array_map(fn (array $p) => [
+                        'lista_precio_id' => $p['lista_precio_id'],
+                        'product_id' => $p['product_id'],
+                        'precio_override' => $p['precio_override'],
+                        'vigencia_desde' => $p['vigencia_desde'] ?? null,
+                        'vigencia_hasta' => $p['vigencia_hasta'] ?? null,
+                    ], $tanda));
+                }
+            } while ($cursor);
 
-        // Sincronizar precios específicos
-        $sincronizados = 0;
-        foreach ($precios as $precioData) {
-            Precio::create([
-                'lista_precio_id' => $precioData['lista_precio_id'],
-                'product_id' => $precioData['product_id'],
-                'precio_override' => $precioData['precio_override'],
-                'vigencia_desde' => $precioData['vigencia_desde'],
-                'vigencia_hasta' => $precioData['vigencia_hasta'],
-                'sincronizado_at' => now(),
-            ]);
+            $sincronizados = DB::transaction(function () use ($listas) {
+                foreach ($listas as $listaData) {
+                    ListaPrecio::updateOrCreate(
+                        ['id' => $listaData['id']],
+                        [
+                            'nombre' => $listaData['nombre'],
+                            'factor' => $listaData['factor'],
+                            'es_default' => $listaData['es_default'],
+                            'sincronizado_at' => now(),
+                        ]
+                    );
+                }
 
-            $sincronizados++;
+                $this->limpiarListasObsoletas(collect($listas)->pluck('id')->all());
+
+                Precio::query()->delete();
+
+                // Solo precios de productos y listas que la caja tiene: por las foreign keys,
+                // antes un precio de un producto que no bajó hacía fallar la sincronización.
+                $ahora = now()->toDateTimeString();
+
+                return DB::affectingStatement(
+                    'insert into precios (lista_precio_id, product_id, precio_override, vigencia_desde, vigencia_hasta, sincronizado_at, created_at, updated_at)
+                     select d.lista_precio_id, d.product_id, d.precio_override, d.vigencia_desde, d.vigencia_hasta, ?, ?, ?
+                     from precios_descarga d
+                     where exists (select 1 from productos p where p.id = d.product_id)
+                       and exists (select 1 from listas_precios l where l.id = d.lista_precio_id)',
+                    [$ahora, $ahora, $ahora]
+                );
+            });
+        } finally {
+            DB::statement('DROP TABLE IF EXISTS temp.precios_descarga');
         }
 
         Configuracion::set('ultima_sincronizacion_precios', now()->toIso8601String());
@@ -442,33 +606,90 @@ class SyncService
         // siguiente); al revés la devolvería al stock y se podría vender dos veces.
         $pendientes = MovimientoStock::pendientesPorProducto();
 
-        $response = $this->managerApi->syncStock();
+        // Delta: solo las filas de stock que cambiaron desde la marca (otra caja vendió, llegó
+        // un remito). Una vez por día, o sin marca, se reconcilia todo: cubre lo que un delta
+        // no ve (una fila borrada, una caja restaurada de un backup).
+        $marca = Configuracion::get(self::MARCA_STOCK);
+        $reconciliada = Configuracion::get(self::RECONCILIACION_STOCK);
+        $completa = $marca === null || $reconciliada === null
+            || Carbon::parse($reconciliada)->lt(now()->subHours(self::HORAS_RECONCILIACION_STOCK));
+        $iniciadaAt = now();
+        $cursor = null;
+        $actualizados = 0;
 
-        if (! $response['success']) {
-            return $response;
-        }
+        do {
+            $respuesta = $this->managerApi->pagina('stock', [
+                'limit' => self::STOCK_POR_PAGINA,
+                'cursor' => $cursor,
+                'updated_since' => $completa ? null : $marca,
+            ]);
 
-        $stockData = $response['data'];
-        $sincronizados = 0;
-
-        foreach ($stockData as $stock) {
-            $producto = Producto::find($stock['product_id']);
-
-            if ($producto) {
-                $producto->update([
-                    'stock' => (int) $stock['cantidad'] + ($pendientes[$producto->id] ?? 0),
-                ]);
-
-                $sincronizados++;
+            if (! $respuesta['success']) {
+                return $respuesta;
             }
-        }
+
+            $json = $respuesta['json'];
+            // Un Manager anterior a la paginación manda el stock entero y sin next_cursor.
+            $legado = ! array_key_exists('next_cursor', $json);
+            $cursor = $legado ? null : $json['next_cursor'];
+
+            $actualizados += $this->aplicarPaginaDeStock($json['data'] ?? [], $pendientes);
+        } while ($cursor);
 
         Configuracion::set('ultima_sincronizacion_stock', now()->toIso8601String());
 
+        // Con un Manager viejo no hay marca: cada corrida trae todo, como antes.
+        if (! $legado && ! empty($json['synced_at'])) {
+            Configuracion::set(self::MARCA_STOCK, $json['synced_at']);
+
+            if ($completa) {
+                Configuracion::set(self::RECONCILIACION_STOCK, $iniciadaAt->toIso8601String());
+            }
+        }
+
         return [
             'success' => true,
-            'cantidad' => $sincronizados,
+            'cantidad' => $actualizados,
         ];
+    }
+
+    /**
+     * Stock de la caja = el del Manager + lo movido acá que el Manager todavía no recibió.
+     *
+     * Los pendientes se vuelven a leer dentro de la transacción y se usa el menor de los dos:
+     * si se envió una venta mientras bajaba la página, se descuenta dos veces un minuto (la
+     * fila del Manager cambió, así que el delta siguiente la trae y corrige); si se vendió
+     * mientras tanto, esa venta no se pierde. Nunca queda stock de más.
+     *
+     * Solo se escriben los productos cuyo stock cambió: la reconciliación diaria de 200.000
+     * filas escribe unas pocas.
+     *
+     * @param  array<int, array<string, mixed>>  $filas
+     * @param  array<int, int>  $pendientesAntes
+     */
+    private function aplicarPaginaDeStock(array $filas, array $pendientesAntes): int
+    {
+        if ($filas === []) {
+            return 0;
+        }
+
+        return DB::transaction(function () use ($filas, $pendientesAntes) {
+            $pendientesAhora = MovimientoStock::pendientesPorProducto();
+            $ahora = now()->toDateTimeString();
+            $actualizados = 0;
+
+            foreach ($filas as $fila) {
+                $id = (int) $fila['product_id'];
+                $stock = (int) $fila['cantidad'] + min($pendientesAntes[$id] ?? 0, $pendientesAhora[$id] ?? 0);
+
+                $actualizados += DB::update(
+                    'update productos set stock = ?, updated_at = ? where id = ? and stock <> ?',
+                    [$stock, $ahora, $id, $stock]
+                );
+            }
+
+            return $actualizados;
+        });
     }
 
     /**
@@ -857,6 +1078,50 @@ class SyncService
         });
 
         return ['success' => true, 'cantidad' => $promociones->count()];
+    }
+
+    /**
+     * Reemplaza la copia local de sucursales.
+     */
+    public function syncSucursales(): array
+    {
+        $response = $this->managerApi->obtenerSucursales();
+
+        if (! $response['success']) {
+            return $response;
+        }
+
+        $sucursales = collect($response['data']);
+
+        DB::transaction(function () use ($sucursales) {
+            Sucursal::whereNotIn('id', $sucursales->pluck('id'))->delete();
+
+            foreach ($sucursales as $s) {
+                Sucursal::updateOrCreate(['id' => $s['id']], [
+                    'nombre' => $s['nombre'],
+                    'is_central' => (bool) ($s['is_central'] ?? false),
+                ]);
+            }
+        });
+
+        return ['success' => true, 'cantidad' => $sucursales->count()];
+    }
+
+    /**
+     * Sincroniza la configuración de remitos (ruta_directa y destino_rechazados).
+     */
+    public function syncConfiguracionRemitos(): array
+    {
+        $response = $this->managerApi->obtenerConfiguracionRemitos();
+
+        if (! $response['success']) {
+            return $response;
+        }
+
+        Configuracion::set('ruta_directa', (bool) ($response['data']['ruta_directa'] ?? true));
+        Configuracion::set('destino_rechazados', $response['data']['destino_rechazados'] ?? 'origen');
+
+        return ['success' => true];
     }
 
     /**
