@@ -36,7 +36,7 @@ class SyncStockYCatalogoTest extends TestCase
         $this->assertSame(3, $p->fresh()->stock);
 
         // Vuelve la red y el pull de stock llega ANTES que el push: el Manager todavía dice 5
-        Http::fake(['*/sync/stock' => Http::response(['data' => [['product_id' => 115, 'cantidad' => 5]]])]);
+        Http::fake(['*/sync/stock*' => Http::response(['data' => [['product_id' => 115, 'cantidad' => 5]]])]);
         app(SyncService::class)->syncStock();
 
         $this->assertSame(3, $p->fresh()->stock, 'no puede "devolver" lo vendido offline');
@@ -83,7 +83,7 @@ class SyncStockYCatalogoTest extends TestCase
 
         Http::fake([
             '*/sync/productos*' => Http::response(['data' => $catalogo]),
-            '*/sync/stock' => Http::response(['data' => [['product_id' => 115, 'cantidad' => 6], ['product_id' => 110, 'cantidad' => 20]]]),
+            '*/sync/stock*' => Http::response(['data' => [['product_id' => 115, 'cantidad' => 6], ['product_id' => 110, 'cantidad' => 20]]]),
         ]);
 
         $this->assertTrue(app(SyncService::class)->syncStock()['success']);

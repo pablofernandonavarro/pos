@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class Sucursal extends Model
 {
+    protected $table = 'sucursales';
+
     public $incrementing = false;
 
     protected $fillable = ['id', 'nombre', 'is_central'];

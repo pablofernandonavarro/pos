@@ -103,8 +103,8 @@ class RemitosEInstalacionTest extends TestCase
             'manager.fake/api/v1/pos/provision' => Http::response(['punto_de_venta_id' => 4, 'secret' => 's3cr3t', 'pdv_nombre' => 'caja 2', 'sucursal_id' => 1, 'sucursal_nombre' => 'Villa Bosh']),
             'manager.fake/api/v1/pos/auth' => Http::response(['token' => 'tok', 'sucursal_id' => 1, 'sucursal_nombre' => 'Villa Bosh', 'pdv_nombre' => 'caja 2']),
             'manager.fake/api/v1/sync/productos*' => Http::response(['data' => [['id' => 115, 'nombre' => 'Zapatillas', 'codigo_interno' => 'ZAP001', 'precio' => 1000, 'es_vendible' => true]]]),
-            'manager.fake/api/v1/sync/precios' => Http::response(['listas' => [], 'precios' => []]),
-            'manager.fake/api/v1/sync/stock' => Http::response(['data' => [['product_id' => 115, 'cantidad' => 4]]]),
+            'manager.fake/api/v1/sync/precios*' => Http::response(['listas' => [], 'precios' => []]),
+            'manager.fake/api/v1/sync/stock*' => Http::response(['data' => [['product_id' => 115, 'cantidad' => 4]]]),
             'manager.fake/api/v1/sync/promociones' => Http::response(['data' => []]),
         ]);
 
