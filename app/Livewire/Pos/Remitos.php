@@ -116,7 +116,7 @@ class Remitos extends Component
 
         $remitoEnProceso = $this->remitoRecibiendo ? RemitoEntrante::find($this->remitoRecibiendo) : null;
         $config = $this->obtenerConfiguracionRemitos();
-        $sucursales = Sucursal::where('id', '!=', auth()->user()->sucursal_id)->get();
+        $sucursales = Sucursal::where('id', '!=', auth()->user()?->sucursal_id)->get();
 
         return view('livewire.pos.remitos', [
             'remitos' => $remitos,

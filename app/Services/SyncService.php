@@ -17,6 +17,7 @@ use App\Models\Sucursal;
 use App\Models\TurnoCaja;
 use App\Models\Venta;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -24,6 +25,26 @@ class SyncService
 {
     /** Ventas por request al Manager. */
     private const TANDA_VENTAS = 100;
+
+    /** Productos por página en paginación. */
+    private const PRODUCTOS_POR_PAGINA = 500;
+
+    /** Precios por página en paginación. */
+    private const PRECIOS_POR_PAGINA = 500;
+
+    /** Filas por upsert en batch. */
+    private const FILAS_POR_UPSERT = 100;
+
+    /** Claves de configuración para sync de stock. */
+    private const MARCA_STOCK = 'sync_stock_marca';
+
+    private const RECONCILIACION_STOCK = 'sync_stock_reconciliacion';
+
+    private const HORAS_RECONCILIACION_STOCK = 24;
+
+    private const STOCK_POR_PAGINA = 500;
+
+    private const PROGRESO_PRODUCTOS = 'sync_productos_progreso';
 
     public function __construct(
         private readonly ManagerApiService $managerApi
