@@ -796,6 +796,8 @@ class SyncService
             'lista_precio_id' => $venta->lista_precio_id,
             'turno_uuid' => $venta->turno?->uuid,
             'cajero' => $venta->cajero,
+            'vendedor_id' => $venta->vendedor_id,
+            'vendedor_nombre' => $venta->vendedor_nombre,
             'numero_venta' => $venta->numero_venta,
             'fecha' => $venta->fecha->toIso8601String(),
             'subtotal' => $venta->subtotal,

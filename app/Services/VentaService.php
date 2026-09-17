@@ -27,8 +27,7 @@ class VentaService
     public function __construct(
         private readonly CajaService $caja,
         private readonly CuentaCorrienteService $cuentas,
-    ) {
-    }
+    ) {}
 
     /**
      * Calcula cómo queda un pago con su promoción, sin registrar nada. La pantalla de cobro
@@ -213,6 +212,8 @@ class VentaService
                 'lista_precio_id' => $listaId,
                 'turno_caja_id' => $turno->id,
                 'cajero' => $turno->cajero,
+                'vendedor_id' => ($id = Configuracion::get('vendedor_activo_id')) !== null ? (int) $id : null,
+                'vendedor_nombre' => Configuracion::get('vendedor_activo_nombre'),
                 'numero_venta' => Venta::generarNumeroVenta(),
                 'fecha' => now(),
                 'subtotal' => Dinero::pesos($subtotal),

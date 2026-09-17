@@ -16,6 +16,8 @@ class Venta extends Model
         'lista_precio_id',
         'turno_caja_id',
         'cajero',
+        'vendedor_id',
+        'vendedor_nombre',
         'numero_venta',
         'fecha',
         'subtotal',
@@ -58,6 +60,16 @@ class Venta extends Model
     public function facturaAutorizada(): bool
     {
         return $this->comprobante_estado === 'autorizado' && ! empty($this->comprobante['cae']);
+    }
+
+    /**
+     * Quién hizo la venta. Cae a quién abrió el turno en ventas de antes de que existiera
+     * `vendedor_nombre` (o si nunca se fijó un vendedor activo), y a "Sin identificar" para
+     * instalaciones sin cajeros cargados que tampoco tienen `cajero` del turno.
+     */
+    public function nombreVendedor(): string
+    {
+        return $this->vendedor_nombre ?? $this->cajero ?? 'Sin identificar';
     }
 
     /**

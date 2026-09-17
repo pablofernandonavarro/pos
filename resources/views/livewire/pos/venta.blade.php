@@ -186,6 +186,30 @@
                     <a href="{{ route('pos.caja') }}" class="text-blue-400 hover:text-blue-300">Caja y cierre →</a>
                 </span>
             </div>
+
+            <div x-data="{ cambiando: false }" class="mb-4 flex items-center gap-3 text-sm">
+                <span class="text-slate-400">
+                    Vendedor: <strong class="text-slate-200">{{ $vendedorActivoNombre ?? 'sin identificar' }}</strong>
+                </span>
+                <button type="button" @click="cambiando = ! cambiando" class="text-blue-400 hover:text-blue-300">
+                    {{ $vendedorActivoNombre ? 'Cambiar' : 'Identificarse' }}
+                </button>
+
+                <div x-show="cambiando" x-cloak class="flex items-center gap-2">
+                    <select wire:model="vendedorSelectId" class="px-2 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm">
+                        <option value="">-- Quién sos --</option>
+                        @foreach($cajerosParaVendedor as $c)
+                            <option value="{{ $c->id }}">{{ $c->nombre }}</option>
+                        @endforeach
+                    </select>
+                    <input type="password" wire:model="vendedorPin" inputmode="numeric" maxlength="6" placeholder="PIN" autocomplete="off"
+                           class="w-20 px-2 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-white text-sm tracking-widest">
+                    <button type="button" wire:click="fijarVendedor"
+                            class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold">
+                        Confirmar
+                    </button>
+                </div>
+            </div>
         @endif
 
         @if($exito)
