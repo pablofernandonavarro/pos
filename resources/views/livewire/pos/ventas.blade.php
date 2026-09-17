@@ -46,7 +46,7 @@
                     <tr>
                         <th class="px-5 py-3 text-left">Venta</th>
                         <th class="px-5 py-3 text-left">Fecha</th>
-                        <th class="px-5 py-3 text-left">Cajero</th>
+                        <th class="px-5 py-3 text-left">Vendedor</th>
                         <th class="px-5 py-3 text-left">Cobro</th>
                         <th class="px-5 py-3 text-right">Total</th>
                         <th class="px-5 py-3"></th>
@@ -72,7 +72,7 @@
                                 @if($v->cliente_nombre)<div class="text-xs text-slate-400">{{ $v->cliente_nombre }}</div>@endif
                             </td>
                             <td class="px-5 py-3 text-slate-300">{{ $v->fecha->timezone($zona)->format('d/m H:i') }}</td>
-                            <td class="px-5 py-3 text-slate-300">{{ $v->cajero ?? '—' }}</td>
+                            <td class="px-5 py-3 text-slate-300">{{ $v->nombreVendedor() }}</td>
                             <td class="px-5 py-3 text-slate-400">{{ $v->pagos->map(fn ($p) => PagoVenta::MEDIOS[$p->medio] ?? $p->medio)->unique()->implode(' + ') ?: '—' }}</td>
                             <td class="px-5 py-3 text-right text-white">{{ Dinero::formato($v->total) }}</td>
                             <td class="px-5 py-3 text-right whitespace-nowrap">
@@ -96,7 +96,7 @@
                 <div class="flex items-center justify-between px-6 py-4 border-b border-slate-700">
                     <div>
                         <h3 class="text-lg font-bold text-white">Venta {{ $detalle->numero_venta }}</h3>
-                        <p class="text-sm text-slate-400">{{ $detalle->fecha->timezone($zona)->format('d/m/Y H:i') }} · {{ $detalle->cajero }}</p>
+                        <p class="text-sm text-slate-400">{{ $detalle->fecha->timezone($zona)->format('d/m/Y H:i') }} · {{ $detalle->nombreVendedor() }}</p>
                     </div>
                     <button type="button" wire:click="cerrarDetalle" class="text-slate-400 hover:text-white text-xl">✕</button>
                 </div>

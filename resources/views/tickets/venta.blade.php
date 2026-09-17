@@ -48,7 +48,7 @@
     <table>
         <tr><td>Venta</td><td class="num">{{ $venta->numero_venta }}</td></tr>
         <tr><td>Fecha</td><td class="num">{{ $venta->fecha->timezone($zona)->format('d/m/Y H:i') }}</td></tr>
-        @if($venta->cajero)<tr><td>Cajero</td><td class="num">{{ $venta->cajero }}</td></tr>@endif
+        <tr><td>Vendedor</td><td class="num">{{ $venta->nombreVendedor() }}</td></tr>
         @if(! $fiscal && ($venta->cliente_nombre || $venta->cliente_documento))
             <tr><td>Cliente</td><td class="num">{{ trim($venta->cliente_nombre.' '.$venta->cliente_documento) }}</td></tr>
         @endif

@@ -110,12 +110,29 @@
                                    class="w-full px-3 py-3 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
                     </div>
-                    <div class="flex justify-end gap-3">
+                    {{-- Confirmación propia en vez de wire:confirm (window.confirm nativo): en la
+                         app de escritorio (Electron) el diálogo del sistema a veces deja la
+                         ventana sin foco de teclado al cerrarse. --}}
+                    <div x-data="{ confirmando: false }" class="flex justify-end items-center gap-3">
                         <button type="button" wire:click="cancelarCierre" class="px-4 py-2 text-slate-300 hover:text-white">Cancelar</button>
-                        <button type="submit" wire:confirm="¿Cerrar la caja? El turno no se va a poder modificar." wire:loading.attr="disabled"
-                                class="px-6 py-3 rounded-lg font-bold bg-red-600 hover:bg-red-500 text-white disabled:opacity-50">
-                            Confirmar cierre Z
-                        </button>
+                        <template x-if="!confirmando">
+                            <button type="button" @click="confirmando = true"
+                                    class="px-6 py-3 rounded-lg font-bold bg-red-600 hover:bg-red-500 text-white">
+                                Confirmar cierre Z
+                            </button>
+                        </template>
+                        <template x-if="confirmando">
+                            <div class="flex items-center gap-2">
+                                <span class="text-sm text-amber-300">El turno no se va a poder modificar. ¿Cerrar?</span>
+                                <button type="submit" wire:loading.attr="disabled"
+                                        class="px-4 py-2 rounded-lg font-bold bg-red-600 hover:bg-red-500 text-white disabled:opacity-50">
+                                    Sí, cerrar
+                                </button>
+                                <button type="button" @click="confirmando = false" class="px-4 py-2 rounded-lg text-slate-300 hover:text-white">
+                                    No
+                                </button>
+                            </div>
+                        </template>
                     </div>
                 </form>
             @endif

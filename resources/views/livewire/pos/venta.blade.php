@@ -238,11 +238,27 @@
                 </p>
             </div>
             @if(!empty($carrito))
-                <button type="button" wire:click="resetearVenta" wire:confirm="¿Vaciar el carrito?"
-                        class="ml-auto shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-red-300 bg-red-500/10 hover:bg-red-500/20 ring-1 ring-red-500/30 transition-colors">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                    Vaciar
-                </button>
+                {{-- Confirmación propia en vez de wire:confirm (window.confirm nativo): en la
+                     app de escritorio (Electron) el diálogo del sistema a veces deja la
+                     ventana sin foco de teclado al cerrarse. --}}
+                <div x-data="{ confirmando: false }" @click.away="confirmando = false" class="ml-auto shrink-0 relative">
+                    <button type="button" @click="confirmando = true" x-show="!confirmando"
+                            class="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-red-300 bg-red-500/10 hover:bg-red-500/20 ring-1 ring-red-500/30 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        Vaciar
+                    </button>
+                    <div x-show="confirmando" x-cloak class="flex items-center gap-1.5 whitespace-nowrap">
+                        <span class="text-xs text-slate-400">¿Vaciar?</span>
+                        <button type="button" wire:click="resetearVenta" @click="confirmando = false"
+                                class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-red-600 hover:bg-red-500 text-white transition-colors">
+                            Sí
+                        </button>
+                        <button type="button" @click="confirmando = false"
+                                class="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors">
+                            No
+                        </button>
+                    </div>
+                </div>
             @endif
         </div>
 

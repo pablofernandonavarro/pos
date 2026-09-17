@@ -237,11 +237,26 @@
                         Ir al POS →
                     </a>
 
-                    <button type="button" wire:click="usarOtroCodigo"
-                            wire:confirm="Esto reemplaza la identidad de esta caja por la del código nuevo. ¿Seguir?"
-                            class="block w-full mt-3 text-center text-xs text-slate-500 hover:text-slate-300 transition-colors">
-                        Reinstalar con otro código
-                    </button>
+                    {{-- Confirmación propia en vez de wire:confirm (window.confirm nativo): en la
+                         app de escritorio (Electron) el diálogo del sistema a veces deja la
+                         ventana sin foco de teclado al cerrarse. --}}
+                    <div x-data="{ confirmando: false }" class="mt-3 text-center">
+                        <template x-if="!confirmando">
+                            <button type="button" @click="confirmando = true"
+                                    class="text-xs text-slate-500 hover:text-slate-300 transition-colors">
+                                Reinstalar con otro código
+                            </button>
+                        </template>
+                        <template x-if="confirmando">
+                            <div class="text-xs space-y-1.5">
+                                <p class="text-amber-300">Esto reemplaza la identidad de esta caja por la del código nuevo.</p>
+                                <div class="flex justify-center gap-3">
+                                    <button type="button" wire:click="usarOtroCodigo" @click="confirmando = false" class="text-red-400 hover:text-red-300 font-medium">Seguir</button>
+                                    <button type="button" @click="confirmando = false" class="text-slate-400 hover:text-slate-300">Cancelar</button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
                 </div>
             @endif
         </div>
