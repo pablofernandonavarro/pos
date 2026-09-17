@@ -45,12 +45,24 @@
                             <a href="{{ route('pos.stock') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.stock') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
                                 Stock
                             </a>
-                            <a href="{{ route('pos.remitos') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.remitos*') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
-                                Remitos
-                            </a>
-                            <a href="{{ route('pos.remitos.nuevo') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.remitos.nuevo') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
-                                ➕ Remito
-                            </a>
+                            <div x-data="{ open: false }" @click.away="open = false" class="relative">
+                                <button @click="open = !open" type="button" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 {{ request()->routeIs('pos.remitos*') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
+                                    Remitos
+                                    <svg class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-180': open }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                                    </svg>
+                                </button>
+
+                                <div x-show="open" x-cloak @click="open = false"
+                                     class="absolute left-0 top-full mt-1 w-52 bg-slate-800 border border-slate-700 rounded-lg shadow-lg py-1 z-50">
+                                    <a href="{{ route('pos.remitos') }}" class="block px-4 py-2 text-sm transition-colors {{ request()->routeIs('pos.remitos') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700' }}">
+                                        📥 Remitos por recibir
+                                    </a>
+                                    <a href="{{ route('pos.remitos.nuevo') }}" class="block px-4 py-2 text-sm transition-colors {{ request()->routeIs('pos.remitos.nuevo') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700' }}">
+                                        ➕ Nuevo remito
+                                    </a>
+                                </div>
+                            </div>
                         </nav>
                     @endif
                 </div>
