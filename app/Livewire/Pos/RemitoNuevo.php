@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Pos;
 
+use App\Models\Configuracion;
 use App\Models\Producto;
 use App\Models\Sucursal;
 use App\Services\RemitosSalientesService;
@@ -85,7 +86,9 @@ class RemitoNuevo extends Component
 
     public function render()
     {
-        $sucursales = Sucursal::where('id', '!=', auth()->user()->sucursal_id)->get();
+        // No hay usuario autenticado por Laravel en esta caja (login por PIN de cajero, sin
+        // tabla users): la sucursal propia es la que guardó ManagerApiService::authenticate().
+        $sucursales = Sucursal::where('id', '!=', (int) Configuracion::get('sucursal_id'))->get();
 
         // Si ruta_directa es false, filtrar solo la Central
         if ($this->rutaDirecta === false) {

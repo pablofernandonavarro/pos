@@ -116,7 +116,11 @@ class Remitos extends Component
 
         $remitoEnProceso = $this->remitoRecibiendo ? RemitoEntrante::find($this->remitoRecibiendo) : null;
         $config = $this->obtenerConfiguracionRemitos();
-        $sucursales = Sucursal::where('id', '!=', auth()->user()?->sucursal_id)->get();
+        // No hay usuario autenticado por Laravel en esta caja (login por PIN de cajero, sin
+        // tabla users): la sucursal propia es la que guardó ManagerApiService::authenticate().
+        // auth()->user() siempre es null acá; con '!=' null Eloquent arma un whereNotNull('id')
+        // que no excluye nada, así que la propia sucursal terminaba apareciendo como destino.
+        $sucursales = Sucursal::where('id', '!=', (int) Configuracion::get('sucursal_id'))->get();
 
         return view('livewire.pos.remitos', [
             'remitos' => $remitos,
