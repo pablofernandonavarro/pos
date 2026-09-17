@@ -84,7 +84,7 @@ class RemitoNuevo extends Component
             $sucursal = Sucursal::find($this->destinoSucursalId)?->nombre ?? 'destino';
 
             session()->flash('success', "Remito #{$resultado['data']['numero']} creado hacia {$sucursal}");
-            $this->redirect('/pos/remitos');
+            $this->redirect(route('pos.remitos'));
         } else {
             $this->error = $resultado['error'] ?? 'Error desconocido';
         }
