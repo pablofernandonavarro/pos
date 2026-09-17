@@ -16,8 +16,7 @@ class RemitosEntrantesService
 {
     public function __construct(
         private readonly ManagerApiService $managerApi
-    ) {
-    }
+    ) {}
 
     /**
      * Reemplaza la copia local por lo que informa el Manager. Lo que ya no viene (lo
@@ -67,12 +66,12 @@ class RemitosEntrantesService
      *
      * @return array{success: bool, mensaje?: string, error?: string}
      */
-    public function recibir(int $remitoId): array
+    public function recibir(int $remitoId, ?array $cantidadesRecibidas = null, ?int $destinoRechazadosId = null): array
     {
         $remito = RemitoEntrante::find($remitoId);
         // Antes de llamar, por la misma razón que en SyncService::syncStock().
         $pendientes = MovimientoStock::pendientesPorProducto();
-        $respuesta = $this->managerApi->recibirRemito($remitoId);
+        $respuesta = $this->managerApi->recibirRemito($remitoId, $cantidadesRecibidas, $destinoRechazadosId);
 
         if (! $respuesta['success']) {
             // Cancelado o ya no es para esta sucursal: no tiene sentido seguir mostrándolo.
@@ -97,14 +96,21 @@ class RemitosEntrantesService
         });
 
         $numero = $remito?->numero ?? $remitoId;
+        $hijo = $respuesta['remito_hijo'] ?? null;
+
+        $mensaje = match (true) {
+            $respuesta['status'] === 'ya_recibido' => "El remito #{$numero} ya estaba recibido. Stock actualizado.",
+            $remito !== null => "Remito #{$numero} recibido: se sumaron {$remito->total_unidades} unidades al stock.",
+            default => "Remito #{$numero} recibido. Stock actualizado.",
+        };
+
+        if ($hijo) {
+            $mensaje .= " Remito hijo #{$hijo['numero']} hacia {$hijo['destino']} por rechazados.";
+        }
 
         return [
             'success' => true,
-            'mensaje' => match (true) {
-                $respuesta['status'] === 'ya_recibido' => "El remito #{$numero} ya estaba recibido. Stock actualizado.",
-                $remito !== null => "Remito #{$numero} recibido: se sumaron {$remito->total_unidades} unidades al stock.",
-                default => "Remito #{$numero} recibido. Stock actualizado.",
-            },
+            'mensaje' => $mensaje,
         ];
     }
 }
