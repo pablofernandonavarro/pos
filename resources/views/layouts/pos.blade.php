@@ -71,6 +71,10 @@
                 </div>
 
                 <div class="flex items-center gap-4">
+                    @if (\App\Models\Configuracion::isConfigured())
+                        @livewire('pos.sesion-vendedor')
+                    @endif
+
                     <!-- Estado real de sincronización -->
                     @if (\App\Models\Configuracion::isConfigured())
                         @livewire('pos.estado-sync')

@@ -7,7 +7,6 @@ use App\Exceptions\CajaException;
 use App\Jobs\SincronizarPendientes;
 use App\Models\Cajero;
 use App\Models\Cliente;
-use App\Models\Configuracion;
 use App\Models\ListaPrecio;
 use App\Models\PagoVenta;
 use App\Models\Producto;
@@ -119,11 +118,6 @@ class Venta extends Component
     public ?int $pagoPromocionId = null;
 
     public string $pagoReferencia = '';
-
-    // --- Vendedor activo: quién hace cada venta, distinto de quién abrió el turno ---
-    public string $vendedorSelectId = '';
-
-    public string $vendedorPin = '';
 
     // --- Mensajes ---
     public ?string $error = null;
@@ -444,28 +438,6 @@ class Venta extends Component
         $this->pagos = [];
         $this->quitarDescuento();
         $this->limpiarMensajes();
-    }
-
-    /**
-     * Fija quién vende a partir de ahora, sin tocar el turno de caja: varias vendedoras
-     * pueden usar la misma caja abierta a lo largo del día. Se guarda en Configuracion (no
-     * en una propiedad del componente) para que sobreviva un F5 y un reinicio de la app.
-     */
-    public function fijarVendedor(AutorizacionService $autorizacion): void
-    {
-        $this->error = null;
-
-        try {
-            $cajero = $autorizacion->verificar($this->vendedorSelectId === '' ? null : (int) $this->vendedorSelectId, $this->vendedorPin);
-
-            Configuracion::set('vendedor_activo_id', (string) $cajero->id);
-            Configuracion::set('vendedor_activo_nombre', $cajero->nombre);
-            $this->vendedorSelectId = '';
-        } catch (CajaException $e) {
-            $this->error = $e->getMessage();
-        } finally {
-            $this->vendedorPin = '';
-        }
     }
 
     /**
@@ -800,8 +772,6 @@ class Venta extends Component
         return view('livewire.pos.venta', [
             'turno' => $turno,
             'cajeros' => $turno ? collect() : Cajero::orderBy('nombre')->get(['id', 'nombre', 'rol']),
-            'cajerosParaVendedor' => Cajero::orderBy('nombre')->get(['id', 'nombre']),
-            'vendedorActivoNombre' => Configuracion::get('vendedor_activo_nombre'),
             'supervisores' => $this->cobrando ? Cajero::where('rol', 'supervisor')->orderBy('nombre')->get(['id', 'nombre']) : collect(),
             'limiteDescuento' => VentaService::limiteDescuentoSinAutorizacion(),
             'descuentoAutorizadoPor' => $this->descuentoAutorizadoPorId ? Cajero::find($this->descuentoAutorizadoPorId)?->nombre : null,

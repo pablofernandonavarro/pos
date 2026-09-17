@@ -6,6 +6,7 @@ use App\Exceptions\CajaException;
 use App\Jobs\SincronizarPendientes;
 use App\Models\AperturaCajon;
 use App\Models\CobroCuentaCorriente;
+use App\Models\Configuracion;
 use App\Models\MovimientoCaja;
 use App\Models\PagoVenta;
 use App\Models\TurnoCaja;
@@ -294,6 +295,11 @@ class CajaService
 
         // Fuera de la transacción, como con las ventas: el Manager recibe el Z en segundos.
         SincronizarPendientes::dispatch();
+
+        // El vendedor activo no cruza turnos: si nadie se identifica de nuevo, las ventas
+        // del turno siguiente no deben quedar atribuidas a quien vendía en el anterior.
+        Configuracion::set('vendedor_activo_id', null);
+        Configuracion::set('vendedor_activo_nombre', null);
 
         return $turno;
     }

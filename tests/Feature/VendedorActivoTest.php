@@ -2,9 +2,10 @@
 
 namespace Tests\Feature;
 
-use App\Livewire\Pos\Venta;
+use App\Livewire\Pos\SesionVendedor;
 use App\Models\Cajero;
 use App\Models\Configuracion;
+use App\Models\TurnoCaja;
 use App\Services\CajaService;
 use App\Services\SyncService;
 use App\Services\VentaService;
@@ -17,7 +18,9 @@ use Tests\TestCase;
 
 /**
  * Quién vendió cada venta puntual, distinto de quién abrió el turno: varias vendedoras
- * pueden usar la misma caja abierta a lo largo del día.
+ * pueden usar la misma caja abierta a lo largo del día. El login (SesionVendedor) es
+ * obligatorio y vive en el layout, no en una pantalla puntual, para que no se pueda
+ * "olvidar" de identificarse y arrastrar el vendedor equivocado a otras ventas.
  */
 class VendedorActivoTest extends TestCase
 {
@@ -36,32 +39,107 @@ class VendedorActivoTest extends TestCase
         app(CajaService::class)->abrirConPin(2, '9999', 5000);
     }
 
-    public function test_fijar_vendedor_con_pin_correcto_guarda_en_configuracion(): void
+    public function test_login_con_pin_correcto_guarda_en_configuracion(): void
     {
-        Livewire::test(Venta::class)
+        Livewire::test(SesionVendedor::class)
             ->set('vendedorSelectId', '1')
-            ->set('vendedorPin', '1111')
-            ->call('fijarVendedor')
+            ->set('pin', '1111')
+            ->call('login')
             ->assertSet('error', null)
-            ->assertSee('Beto');
+            ->assertSee('Beto')
+            ->assertDontSee('¿Quién sos?');
 
         $this->assertSame('1', Configuracion::get('vendedor_activo_id'));
         $this->assertSame('Beto', Configuracion::get('vendedor_activo_nombre'));
     }
 
-    public function test_fijar_vendedor_con_pin_incorrecto_no_cambia_nada(): void
+    public function test_login_con_pin_incorrecto_no_cambia_nada(): void
     {
         Configuracion::set('vendedor_activo_id', '2');
         Configuracion::set('vendedor_activo_nombre', 'Ana');
 
-        Livewire::test(Venta::class)
+        Livewire::test(SesionVendedor::class)
             ->set('vendedorSelectId', '1')
-            ->set('vendedorPin', '0000')
-            ->call('fijarVendedor')
+            ->set('pin', '0000')
+            ->call('login')
             ->assertSet('error', 'PIN incorrecto.');
 
         $this->assertSame('2', Configuracion::get('vendedor_activo_id'));
         $this->assertSame('Ana', Configuracion::get('vendedor_activo_nombre'));
+    }
+
+    public function test_logout_limpia_la_configuracion(): void
+    {
+        Configuracion::set('vendedor_activo_id', '1');
+        Configuracion::set('vendedor_activo_nombre', 'Beto');
+
+        Livewire::test(SesionVendedor::class)
+            ->call('logout')
+            ->assertSee('¿Quién sos?');
+
+        $this->assertNull(Configuracion::get('vendedor_activo_id'));
+        $this->assertNull(Configuracion::get('vendedor_activo_nombre'));
+    }
+
+    public function test_sin_vendedor_activo_y_con_cajeros_cargados_exige_login(): void
+    {
+        Livewire::test(SesionVendedor::class)
+            ->assertSee('¿Quién sos?');
+    }
+
+    public function test_sin_cajeros_cargados_no_exige_login(): void
+    {
+        Cajero::query()->delete();
+
+        Livewire::test(SesionVendedor::class)
+            ->assertDontSee('¿Quién sos?');
+    }
+
+    /**
+     * Sin turno abierto ya hay otro bloqueo (la pantalla de Venta pide abrir caja): no
+     * tiene sentido superponer este login encima con el mismo z-index.
+     */
+    public function test_sin_turno_abierto_no_exige_login(): void
+    {
+        $turno = TurnoCaja::whereNull('cerrado_at')->firstOrFail();
+        app(CajaService::class)->cerrar($turno, 5000);
+
+        Livewire::test(SesionVendedor::class)
+            ->assertDontSee('¿Quién sos?');
+    }
+
+    public function test_tras_el_tiempo_de_inactividad_se_desloguea_solo(): void
+    {
+        Configuracion::set('vendedor_activo_id', '1');
+        Configuracion::set('vendedor_activo_nombre', 'Beto');
+        Configuracion::set('vendedor_ultima_actividad', now()->subMinutes(25)->toIso8601String());
+
+        Livewire::test(SesionVendedor::class)->assertSee('¿Quién sos?');
+
+        $this->assertNull(Configuracion::get('vendedor_activo_id'));
+    }
+
+    public function test_con_actividad_reciente_no_se_desloguea(): void
+    {
+        Configuracion::set('vendedor_activo_id', '1');
+        Configuracion::set('vendedor_activo_nombre', 'Beto');
+        Configuracion::set('vendedor_ultima_actividad', now()->subMinutes(5)->toIso8601String());
+
+        Livewire::test(SesionVendedor::class)->assertDontSee('¿Quién sos?');
+
+        $this->assertSame('1', Configuracion::get('vendedor_activo_id'));
+    }
+
+    public function test_cerrar_el_turno_desloguea_al_vendedor(): void
+    {
+        Configuracion::set('vendedor_activo_id', '1');
+        Configuracion::set('vendedor_activo_nombre', 'Beto');
+
+        $turno = TurnoCaja::whereNull('cerrado_at')->firstOrFail();
+        app(CajaService::class)->cerrar($turno, 5000);
+
+        $this->assertNull(Configuracion::get('vendedor_activo_id'));
+        $this->assertNull(Configuracion::get('vendedor_activo_nombre'));
     }
 
     public function test_una_venta_hereda_el_vendedor_activo(): void
