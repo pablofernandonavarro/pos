@@ -44,6 +44,18 @@ class CajaServiceTest extends TestCase
         $this->assertSame(2, $this->caja->abrir('Beto', 0)->numero);
     }
 
+    /**
+     * La base misma lo impide, no solo CajaService: por si algún día algo escribe
+     * turnos_caja sin pasar por acá (un fix apurado, una migración de datos, etc.).
+     */
+    public function test_dos_turnos_abiertos_a_la_vez_violan_el_indice_unico(): void
+    {
+        TurnoCaja::create(['numero' => 1, 'cajero' => 'Ana', 'fondo_inicial' => 0, 'abierto_at' => now()]);
+
+        $this->expectException(\Illuminate\Database\QueryException::class);
+        TurnoCaja::create(['numero' => 2, 'cajero' => 'Beto', 'fondo_inicial' => 0, 'abierto_at' => now()]);
+    }
+
     public function test_validaciones_de_apertura(): void
     {
         foreach ([['', 100], ['Ana', -1]] as [$cajero, $fondo]) {
