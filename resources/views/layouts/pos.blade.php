@@ -83,6 +83,10 @@
                                 ⚙️ Configuración
                             </a>
                             <hr class="my-2 border-slate-700">
+                            <div class="px-4 py-2 text-xs text-slate-500 border-t border-slate-700">
+                                POS v{{ \App\Support\VersionPos::version() }}
+                            </div>
+                            <hr class="my-2 border-slate-700">
                             <div x-data="{
                                 confirmando: false,
                                 bloqueado: false,
