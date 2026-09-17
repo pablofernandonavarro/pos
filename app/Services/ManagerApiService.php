@@ -6,13 +6,14 @@ use App\Models\Configuracion;
 use App\Support\VersionPos;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
-use Illuminate\Http\Client\Response;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class ManagerApiService
 {
     private string $baseUrl;
+
     private ?string $token;
 
     public function __construct()
@@ -100,7 +101,8 @@ class ManagerApiService
     public function checkConnection(): bool
     {
         try {
-            $response = $this->client()->get("{$this->baseUrl}/sync/productos");
+            // limit=1: sin él el Manager responde el catálogo entero.
+            $response = $this->client()->get("{$this->baseUrl}/sync/productos", ['limit' => 1]);
 
             return $response->successful();
         } catch (\Exception $e) {
@@ -143,6 +145,38 @@ class ManagerApiService
                 'success' => false,
                 'error' => 'Error de conexión al sincronizar productos',
             ];
+        }
+    }
+
+    /**
+     * Una página de la sincronización incremental (Manager con cursor): productos, stock o
+     * precios. El Manager devuelve `next_cursor` (null en la última) y `synced_at`, la marca
+     * para el próximo `updated_since`. Un Manager anterior ignora limit/cursor y devuelve todo
+     * en una sola respuesta sin `next_cursor`: se toma como página única.
+     *
+     * `status` viaja en los errores HTTP: 422 = cursor que el Manager ya no acepta.
+     *
+     * @param  array<string, mixed>  $params
+     * @return array{success: bool, json?: array<string, mixed>, error?: string, status?: int}
+     */
+    public function pagina(string $recurso, array $params): array
+    {
+        try {
+            // Páginas de hasta 5000 filas: más margen que los 30 s del resto.
+            $response = $this->client()->timeout(120)
+                ->get("{$this->baseUrl}/sync/{$recurso}", array_filter($params, fn ($v) => $v !== null));
+
+            if ($response->successful()) {
+                return ['success' => true, 'json' => $response->json() ?? []];
+            }
+
+            return ['success' => false, 'status' => $response->status(), 'error' => $response->json('message', "Error al sincronizar {$recurso}")];
+        } catch (RequestException $e) {
+            return ['success' => false, 'status' => $e->response->status(), 'error' => $e->response->json('message') ?? "Error al sincronizar {$recurso}"];
+        } catch (\Exception $e) {
+            Log::error("Error sincronizando {$recurso}", ['error' => $e->getMessage(), 'params' => $params]);
+
+            return ['success' => false, 'error' => "Error de conexión al sincronizar {$recurso}"];
         }
     }
 
@@ -562,22 +596,28 @@ class ManagerApiService
      *
      * @return array{success: bool, status?: string, stock?: array, error?: string, codigo?: int}
      */
-    public function recibirRemito(int $remitoId): array
+    public function recibirRemito(int $remitoId, ?array $cantidadesRecibidas = null, ?int $destinoRechazadosId = null): array
     {
         try {
+            $data = array_filter([
+                'cantidades_recibidas' => $cantidadesRecibidas,
+                'destino_rechazados_id' => $destinoRechazadosId,
+            ]);
+
             $response = Http::connectTimeout(5)
                 ->timeout(30)
                 ->acceptJson()
                 ->withHeaders(VersionPos::cabeceras())
                 ->withToken((string) $this->token)
                 ->retry(3, 300, fn ($e) => $e instanceof ConnectionException, throw: false)
-                ->post("{$this->baseUrl}/pos/remitos/{$remitoId}/recibir");
+                ->post("{$this->baseUrl}/pos/remitos/{$remitoId}/recibir", $data);
 
             if ($response->successful()) {
                 return [
                     'success' => true,
                     'status' => $response->json('status'),
                     'stock' => $response->json('stock', []),
+                    'remito_hijo' => $response->json('remito_hijo'),
                 ];
             }
 
@@ -590,6 +630,97 @@ class ManagerApiService
             Log::warning('No se pudo recibir el remito', ['remito' => $remitoId, 'error' => $e->getMessage()]);
 
             return ['success' => false, 'error' => 'Sin conexión con el Manager. La mercadería no se dio por recibida: reintentá cuando vuelva la conexión.'];
+        }
+    }
+
+    public function crearRemito(int $destinoSucursalId, array $items, ?string $observaciones = null): array
+    {
+        try {
+            $response = Http::connectTimeout(5)
+                ->timeout(30)
+                ->acceptJson()
+                ->withHeaders(VersionPos::cabeceras())
+                ->withToken((string) $this->token)
+                ->retry(3, 300, fn ($e) => $e instanceof ConnectionException, throw: false)
+                ->post("{$this->baseUrl}/pos/remitos", [
+                    'destino_sucursal_id' => $destinoSucursalId,
+                    'items' => $items,
+                    'observaciones' => $observaciones,
+                ]);
+
+            if ($response->successful()) {
+                return [
+                    'success' => true,
+                    'data' => $response->json('data', []),
+                ];
+            }
+
+            return [
+                'success' => false,
+                'error' => $response->json('message', 'El Manager rechazó el remito ('.$response->status().')'),
+            ];
+        } catch (\Exception $e) {
+            Log::warning('No se pudo crear el remito', ['error' => $e->getMessage()]);
+
+            return ['success' => false, 'error' => 'Sin conexión con el Manager. No se pudo crear el remito.'];
+        }
+    }
+
+    public function obtenerConfiguracionRemitos(): array
+    {
+        try {
+            $response = Http::connectTimeout(5)
+                ->timeout(30)
+                ->acceptJson()
+                ->withHeaders(VersionPos::cabeceras())
+                ->withToken((string) $this->token)
+                ->retry(3, 300, fn ($e) => $e instanceof ConnectionException, throw: false)
+                ->get("{$this->baseUrl}/pos/remitos/configuracion");
+
+            if ($response->successful()) {
+                return [
+                    'success' => true,
+                    'data' => $response->json(),
+                ];
+            }
+
+            return [
+                'success' => false,
+                'error' => 'No se pudo obtener la configuración de remitos',
+            ];
+        } catch (\Exception $e) {
+            Log::warning('No se pudo obtener configuración remitos', ['error' => $e->getMessage()]);
+
+            return ['success' => false, 'error' => 'Sin conexión con el Manager'];
+        }
+    }
+
+    public function obtenerSucursales(): array
+    {
+        try {
+            $response = Http::connectTimeout(5)
+                ->timeout(30)
+                ->acceptJson()
+                ->withHeaders(VersionPos::cabeceras())
+                ->withToken((string) $this->token)
+                ->retry(3, 300, fn ($e) => $e instanceof ConnectionException, throw: false)
+                ->get("{$this->baseUrl}/sync/sucursales");
+
+            if ($response->successful()) {
+                return [
+                    'success' => true,
+                    'data' => $response->json('data', []),
+                ];
+            }
+
+            return [
+                'success' => false,
+                'error' => 'No se pudieron obtener las sucursales',
+            ];
+        } catch (\Exception $e) {
+            Log::warning('No se pudieron obtener sucursales', ['error' => $e->getMessage()]);
+
+            return ['success' => false, 'error' => 'Sin conexión con el Manager'];
         }
     }
 
