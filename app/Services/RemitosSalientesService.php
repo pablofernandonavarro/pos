@@ -2,10 +2,13 @@
 
 namespace App\Services;
 
-use App\Models\Producto;
 use App\Models\RemitoSaliente;
-use App\Models\Sucursal;
+use Illuminate\Support\Carbon;
 
+/**
+ * Remitos que esta sucursal mandó a otras: crearlos y el historial con su estado actual
+ * (en camino / confirmado / cancelado), que vive en el Manager.
+ */
 class RemitosSalientesService
 {
     public function __construct(private ManagerApiService $api) {}
@@ -27,10 +30,8 @@ class RemitosSalientesService
     }
 
     /**
-     * Crea el remito en el Manager (fuente de verdad del stock) y, si sale bien, guarda una
-     * copia local para el historial y la reimpresión sin depender de la red. Si el Manager
-     * lo aceptó pero la copia local falla, el remito ya existe igual: no vale la pena
-     * revertir nada por eso.
+     * Crea el remito en el Manager (fuente de verdad del stock) y, si sale bien, sincroniza
+     * el historial local para traerlo con su id y estado reales.
      *
      * @param  array<int, int>  $items  product_id => cantidad
      */
@@ -39,31 +40,42 @@ class RemitosSalientesService
         $resultado = $this->api->crearRemito($destinoSucursalId, $items, $observaciones);
 
         if ($resultado['success']) {
-            $this->guardarCopiaLocal($destinoSucursalId, $items, $observaciones, $resultado['data'] ?? []);
+            $this->sincronizar();
         }
 
         return $resultado;
     }
 
-    private function guardarCopiaLocal(int $destinoSucursalId, array $items, ?string $observaciones, array $data): void
+    /**
+     * Reemplaza la copia local por lo que informa el Manager (hasta los últimos 200). No
+     * borra lo que ya no viene: a diferencia de remitos entrantes, acá no hay "esto ya no
+     * importa", el historial completo es justamente el punto de esta pantalla.
+     *
+     * @return array{success: bool, cantidad?: int, error?: string}
+     */
+    public function sincronizar(): array
     {
-        $productos = Producto::whereIn('id', array_keys($items))->get()->keyBy('id');
+        $respuesta = $this->api->obtenerRemitosEnviados();
 
-        $detalle = collect($items)->map(fn (int $cantidad, int $productoId) => [
-            'product_id' => $productoId,
-            'nombre' => $productos->get($productoId)?->nombre ?? "Producto {$productoId}",
-            'codigo' => $productos->get($productoId)?->codigo_interno,
-            'cantidad' => $cantidad,
-        ])->values()->all();
+        if (! $respuesta['success']) {
+            return $respuesta;
+        }
 
-        RemitoSaliente::create([
-            'numero' => $data['numero'] ?? '-',
-            'destino_sucursal_id' => $destinoSucursalId,
-            'destino_nombre' => Sucursal::find($destinoSucursalId)?->nombre ?? 'Sucursal',
-            'items' => $detalle,
-            'total_unidades' => array_sum($items),
-            'observaciones' => $observaciones,
-            'enviado_at' => now(),
-        ]);
+        foreach ($respuesta['data'] as $r) {
+            RemitoSaliente::updateOrCreate(['id' => $r['id']], [
+                'numero' => $r['numero'],
+                'destino_sucursal_id' => $r['destino_sucursal_id'],
+                'destino_nombre' => $r['destino'],
+                'estado' => $r['estado'],
+                'items' => $r['items'],
+                'total_unidades' => collect($r['items'])->sum('cantidad'),
+                'observaciones' => $r['observaciones'] ?? null,
+                // A UTC antes de guardar: el cast datetime descarta el offset del ISO.
+                'enviado_at' => Carbon::parse($r['remitido_at'])->utc(),
+                'confirmado_at' => isset($r['confirmado_at']) ? Carbon::parse($r['confirmado_at'])->utc() : null,
+            ]);
+        }
+
+        return ['success' => true, 'cantidad' => count($respuesta['data'])];
     }
 }

@@ -587,6 +587,24 @@ class ManagerApiService
     }
 
     /**
+     * Remitos que esta sucursal mandó a otras, con su estado actual.
+     */
+    public function obtenerRemitosEnviados(): array
+    {
+        try {
+            $response = $this->client()->get("{$this->baseUrl}/pos/remitos/enviados");
+
+            if ($response->successful()) {
+                return ['success' => true, 'data' => $response->json('data', [])];
+            }
+
+            return ['success' => false, 'error' => $response->json('message', 'Error al consultar remitos enviados')];
+        } catch (\Exception $e) {
+            return ['success' => false, 'error' => 'Sin conexión con el Manager'];
+        }
+    }
+
+    /**
      * Da por recibido un remito en el Manager.
      *
      * No usa client(): su retry() convierte cualquier 4xx en excepción, y acá hace falta
