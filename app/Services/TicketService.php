@@ -6,10 +6,11 @@ use App\Contracts\ImpresoraTickets;
 use App\Models\Cliente;
 use App\Models\CobroCuentaCorriente;
 use App\Models\Configuracion;
-use App\Support\Dinero;
 use App\Models\Devolucion;
+use App\Models\RemitoSaliente;
 use App\Models\TurnoCaja;
 use App\Models\Venta;
+use App\Support\Dinero;
 
 /**
  * Arma el HTML de tickets e informes (80 mm) y los manda a la impresora configurada.
@@ -21,8 +22,7 @@ class TicketService
     public function __construct(
         private readonly ImpresoraTickets $impresora,
         private readonly CajaService $caja,
-    ) {
-    }
+    ) {}
 
     public function htmlVenta(Venta $venta, bool $paraNavegador = false): string
     {
@@ -69,6 +69,21 @@ class TicketService
             'saldo' => $cliente ? Dinero::pesos(app(CuentaCorrienteService::class)->saldoCentavos($cliente)) : null,
             'paraNavegador' => $paraNavegador,
         ])->render();
+    }
+
+    public function htmlRemito(RemitoSaliente $remito, bool $paraNavegador = false): string
+    {
+        return view('tickets.remito', [
+            'remito' => $remito,
+            'comercio' => self::datosComercio(),
+            'paraNavegador' => $paraNavegador,
+        ])->render();
+    }
+
+    /** @return string|null null si se imprimió; si no, el motivo. */
+    public function imprimirRemito(RemitoSaliente $remito): ?string
+    {
+        return $this->mandar($this->htmlRemito($remito));
     }
 
     /** @return string|null null si se imprimió; si no, el motivo. */

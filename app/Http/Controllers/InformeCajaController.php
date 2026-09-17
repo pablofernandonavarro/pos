@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\CobroCuentaCorriente;
 use App\Models\Devolucion;
+use App\Models\RemitoSaliente;
 use App\Models\TurnoCaja;
 use App\Models\Venta;
 use App\Services\TicketService;
@@ -35,5 +36,10 @@ class InformeCajaController
     public function cobro(CobroCuentaCorriente $cobro, TicketService $tickets): Response
     {
         return response($tickets->htmlCobro($cobro, paraNavegador: true));
+    }
+
+    public function remito(RemitoSaliente $remito, TicketService $tickets): Response
+    {
+        return response($tickets->htmlRemito($remito, paraNavegador: true));
     }
 }

@@ -8,6 +8,7 @@ use App\Livewire\Pos\Caja;
 use App\Livewire\Pos\Productos;
 use App\Livewire\Pos\RemitoNuevo;
 use App\Livewire\Pos\Remitos;
+use App\Livewire\Pos\RemitosEnviados;
 use App\Livewire\Pos\Sincronizacion;
 use App\Livewire\Pos\Stock;
 use App\Livewire\Pos\Venta;
@@ -39,6 +40,8 @@ Route::middleware(RequiereCajaConfigurada::class)->group(function () {
     // Remitos
     Route::get('/remitos', Remitos::class)->name('pos.remitos');
     Route::get('/remitos/nuevo', RemitoNuevo::class)->name('pos.remitos.nuevo');
+    Route::get('/remitos/enviados', RemitosEnviados::class)->name('pos.remitos.enviados');
+    Route::get('/remitos/enviados/{remito}/comprobante', [InformeCajaController::class, 'remito'])->name('pos.remito.comprobante');
 
     // Sincronización
     Route::get('/sync', Sincronizacion::class)->name('pos.sync');

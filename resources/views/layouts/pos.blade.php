@@ -61,6 +61,9 @@
                                     <a href="{{ route('pos.remitos.nuevo') }}" class="block px-4 py-2 text-sm transition-colors {{ request()->routeIs('pos.remitos.nuevo') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700' }}">
                                         ➕ Nuevo remito
                                     </a>
+                                    <a href="{{ route('pos.remitos.enviados') }}" class="block px-4 py-2 text-sm transition-colors {{ request()->routeIs('pos.remitos.enviados') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700' }}">
+                                        📤 Remitos enviados
+                                    </a>
                                 </div>
                             </div>
                         </nav>
