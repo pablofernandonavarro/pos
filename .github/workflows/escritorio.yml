@@ -1,6 +1,7 @@
 name: App de escritorio
 
-# Compila la app de escritorio (NativePHP) en Windows y la publica en el Manager.
+# Compila la app de escritorio (NativePHP) para Windows y para Mac (Apple Silicon) y las
+# publica en el Manager, las dos con la misma versión.
 #
 #   git tag escritorio-v1.7.0 && git push origin escritorio-v1.7.0   → compila y publica
 #   Actions → App de escritorio → Run workflow (versión)             → solo compila (prueba)
@@ -140,3 +141,114 @@ jobs:
           printf '%s\n' "${{ secrets.PUBLICAR_KNOWN_HOSTS }}" | tr -d '\r' > ~/.ssh/known_hosts
           ssh -i ~/.ssh/publicar -o IdentitiesOnly=yes -o BatchMode=yes \
             "deploy@${{ vars.PUBLICAR_HOST }}" "$VERSION $SHA" < pos-escritorio.zip
+
+  # Mac con Apple Silicon (arm64). Mismo código y misma versión que Windows, desde el mismo
+  # tag. Sale sin firma de Developer ID: la primera vez se habilita en Ajustes → Privacidad y
+  # seguridad → "Abrir igual" (instructivo en Puntos de venta del Manager).
+  mac:
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versión
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            VERSION="${GITHUB_REF_NAME#escritorio-v}"; PUBLICAR=1
+          else
+            VERSION="${{ inputs.version }}"; PUBLICAR=0
+          fi
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Versión inválida: $VERSION (formato 1.7.0)"; exit 1; }
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "PUBLICAR=$PUBLICAR" >> "$GITHUB_ENV"
+          echo "Versión $VERSION · publicar=$PUBLICAR"
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: zip, sqlite3, pdo_sqlite, mbstring, intl, fileinfo, curl, openssl
+          ini-values: memory_limit=1G
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Assets
+        run: npm ci && npm run build
+
+      - name: composer y .env de escritorio
+        env:
+          APP_KEY: ${{ secrets.ESCRITORIO_APP_KEY }}
+        run: |
+          [ -n "$APP_KEY" ] || { echo "::error::Falta el secreto ESCRITORIO_APP_KEY (la APP_KEY compartida de la app de escritorio)"; exit 1; }
+          cp composer.escritorio.json composer.json
+          cp composer.escritorio.lock composer.lock
+          sed -e "s|^APP_KEY=.*|APP_KEY=${APP_KEY}|" \
+              -e "s|^NATIVEPHP_APP_VERSION=.*|NATIVEPHP_APP_VERSION=${VERSION}|" \
+              .env.escritorio.example > .env
+          grep -q "^NATIVEPHP_APP_VERSION=${VERSION}$" .env
+
+      - name: Dependencias de escritorio (con el parche de NativePHP)
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      # En este runner corren de verdad los tests que solo aplican a Mac (cajón por CUPS,
+      # extracción con unzip).
+      - name: Tests con NativePHP instalado
+        run: php vendor/bin/phpunit
+
+      # Si falla un paso posterior (dmg), el .app igual queda: eso es lo que se distribuye.
+      - name: Compilar
+        run: |
+          php artisan native:build mac arm64 --no-interaction || echo "native:build terminó con código $?"
+          APP=$(find nativephp/electron/dist -maxdepth 2 -type d -name '*.app' | head -1)
+          [ -n "$APP" ] || { echo "::error::No se generó ningún .app"; ls -R nativephp/electron/dist | head -50; exit 1; }
+          file "$APP/Contents/MacOS/"* | grep -q arm64 || { echo "::error::El ejecutable no es arm64"; exit 1; }
+          echo "APP=$APP" >> "$GITHUB_ENV"
+          echo "Compilado: $APP"
+
+      - name: Revisar lo que quedó dentro de la app
+        run: |
+          PROHIBIDOS=$(find "$APP" \( -iname '*.sqlite' -o -iname '*.sqlite-wal' -o -iname '*.sqlite-shm' -o -name '.pos-info' -o -name '.env.escritorio' \))
+          [ -z "$PROHIBIDOS" ] || { echo "::error::Se colaron datos de una caja: $PROHIBIDOS"; exit 1; }
+          ENV_APP=$(find "$APP" -path '*/build/app/.env' | head -1)
+          [ -n "$ENV_APP" ] || { echo "::error::No se encontró el .env compilado dentro del .app"; exit 1; }
+          grep -q "^NATIVEPHP_APP_VERSION=${VERSION}\s*$" "$ENV_APP" || { echo "::error::El .env compilado no tiene NATIVEPHP_APP_VERSION=${VERSION}"; exit 1; }
+          echo OK
+
+      # En Apple Silicon un .app sin firma no arranca. Sin cuenta de Apple alcanza la firma
+      # ad-hoc (identidad "-"); si electron-builder no la dejó sellada, se firma acá.
+      - name: Firma ad-hoc
+        run: |
+          codesign --verify --deep --strict "$APP" 2>/dev/null || codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict "$APP"
+          codesign -dv "$APP" 2>&1 | grep -E 'Identifier|Signature'
+
+      # ditto y no zip: el .app de Electron trae symlinks en sus frameworks y un zip común los
+      # convierte en copias, y macOS dice que la app "está dañada".
+      - name: Empaquetar
+        run: |
+          ditto -c -k --keepParent "$APP" pos-escritorio-mac.zip
+          SHA=$(shasum -a 256 pos-escritorio-mac.zip | cut -d' ' -f1)
+          echo "SHA=$SHA" >> "$GITHUB_ENV"
+          echo "pos-escritorio-mac.zip $(( $(stat -f %z pos-escritorio-mac.zip) / 1024 / 1024 )) MB · sha256 $SHA"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: POS-Escritorio-Mac-${{ env.VERSION }}
+          path: pos-escritorio-mac.zip
+          retention-days: 14
+
+      - name: Publicar en el Manager
+        if: env.PUBLICAR == '1'
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.PUBLICAR_SSH_KEY }}" | tr -d '\r' > ~/.ssh/publicar
+          chmod 600 ~/.ssh/publicar
+          printf '%s\n' "${{ secrets.PUBLICAR_KNOWN_HOSTS }}" | tr -d '\r' > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/publicar -o IdentitiesOnly=yes -o BatchMode=yes \
+            "deploy@${{ vars.PUBLICAR_HOST }}" "$VERSION $SHA mac" < pos-escritorio-mac.zip

@@ -28,7 +28,7 @@
                                 <option value="{{ $impresora }}">{{ $impresora }} (no detectada)</option>
                             @endif
                         </select>
-                        <p class="mt-1 text-xs text-slate-500">Para la Epson TM-T20 instalá el driver de Epson (APD) y elegí «EPSON TM-T20» o el nombre que le dio Windows.</p>
+                        <p class="mt-1 text-xs text-slate-500">Para la Epson TM-T20: en Windows instalá el driver de Epson (APD); en Mac agregala en Ajustes del Sistema → Impresoras. Después elegila acá.</p>
                     </div>
 
                     <label class="flex items-center gap-3 text-slate-300">
@@ -54,7 +54,7 @@
                     <p class="text-sm text-slate-400">Conectado a la impresora de tickets (puerto DK de la TM-T20). Se abre por la impresora {{ $imprimeDirecto ? 'elegida arriba' : 'con este nombre' }}.</p>
                     @unless($imprimeDirecto)
                         <div>
-                            <label class="block text-sm font-medium text-slate-300 mb-1">Nombre de la impresora en Windows</label>
+                            <label class="block text-sm font-medium text-slate-300 mb-1">Nombre de la impresora en el sistema</label>
                             <input type="text" wire:model="impresora" maxlength="200" placeholder="EPSON TM-T20"
                                    class="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
                         </div>
@@ -74,7 +74,7 @@
                         </button>
                     @endif
                 @else
-                    <p class="text-sm text-slate-400">La apertura del cajón desde la caja funciona en Windows.</p>
+                    <p class="text-sm text-slate-400">La apertura del cajón desde la caja funciona en Windows y en Mac.</p>
                 @endif
             </div>
 

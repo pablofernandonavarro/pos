@@ -8,7 +8,7 @@ namespace App\Contracts;
  */
 interface CajonDinero
 {
-    /** Si esta máquina puede mandar el pulso (hoy: Windows). */
+    /** Si esta máquina puede mandar el pulso (Windows o Mac). */
     public function disponible(): bool;
 
     /** @return string|null null si se mandó el pulso; si no, el motivo. */

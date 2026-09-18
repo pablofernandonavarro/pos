@@ -141,14 +141,16 @@ class ActualizarCommand extends Command
     }
 
     /**
-     * Se extrae con PowerShell y no con ZipArchive porque el PHP de las cajas (XAMPP)
-     * viene sin la extensión zip cargada. Depender de ella obligaría a editar el php.ini
-     * de cada máquina, que es justo el trabajo manual que este comando viene a evitar.
+     * Se extrae con la herramienta del sistema y no con ZipArchive porque el PHP de las
+     * cajas Windows (XAMPP) viene sin la extensión zip cargada. Depender de ella obligaría
+     * a editar el php.ini de cada máquina, que es justo el trabajo manual que este comando
+     * viene a evitar. En Mac, `unzip` viene con el sistema.
      */
-    private function extraer(string $zip, string $destino): void
+    public static function procesoDeExtraccion(string $zip, string $destino): Process
     {
-        File::deleteDirectory($destino);
-        File::ensureDirectoryExists($destino);
+        if (PHP_OS_FAMILY !== 'Windows') {
+            return new Process(['/usr/bin/unzip', '-o', '-q', $zip, '-d', $destino]);
+        }
 
         // Las rutas van por variables de entorno y no interpoladas en el comando: no hay
         // comillas que escapar y no se arma una cadena que PowerShell tenga que parsear.
@@ -157,8 +159,17 @@ class ActualizarCommand extends Command
             'powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass',
             '-Command', 'Expand-Archive -LiteralPath $env:POS_ZIP -DestinationPath $env:POS_DEST -Force',
         ]);
-
         $proceso->setEnv(['POS_ZIP' => $zip, 'POS_DEST' => $destino]);
+
+        return $proceso;
+    }
+
+    private function extraer(string $zip, string $destino): void
+    {
+        File::deleteDirectory($destino);
+        File::ensureDirectoryExists($destino);
+
+        $proceso = self::procesoDeExtraccion($zip, $destino);
         $proceso->setTimeout(300);
         $proceso->run();
 

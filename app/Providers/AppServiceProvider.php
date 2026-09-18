@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Contracts\CajonDinero;
 use App\Contracts\ImpresoraTickets;
+use App\Services\Impresion\CajonDineroMac;
 use App\Services\Impresion\CajonDineroWindows;
 use App\Services\Impresion\ImpresoraNativePHP;
 use App\Services\Impresion\ImpresoraNavegador;
@@ -20,8 +21,8 @@ class AppServiceProvider extends ServiceProvider
             ? new ImpresoraNativePHP
             : new ImpresoraNavegador);
 
-        // El cajón va por la cola de Windows: funciona igual en la clásica y en escritorio.
-        $this->app->bind(CajonDinero::class, CajonDineroWindows::class);
+        // El cajón va por la cola de impresión del sistema: winspool en Windows, CUPS en Mac.
+        $this->app->bind(CajonDinero::class, PHP_OS_FAMILY === 'Darwin' ? CajonDineroMac::class : CajonDineroWindows::class);
     }
 
     public function boot(): void

@@ -11,6 +11,7 @@ use App\Models\AperturaCajon;
 use App\Models\Configuracion;
 use App\Services\CajaService;
 use App\Services\CajonService;
+use App\Services\Impresion\CajonDineroMac;
 use App\Services\Impresion\CajonDineroWindows;
 use App\Services\TicketService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -127,6 +128,34 @@ class CajonDineroTest extends TestCase
         $this->assertStringStartsWith("\$ErrorActionPreference = 'Stop'", $script);
         $this->assertMatchesRegularExpression("/^'@$/m", $script, 'el here-string de PowerShell cierra en la columna 0');
         $this->assertSame($script, mb_convert_encoding(base64_decode(CajonDineroWindows::comandoCodificado("Caja O'Brien")), 'UTF-8', 'UTF-16LE'));
+    }
+
+    public function test_en_mac_manda_el_mismo_pulso_en_crudo_por_cups(): void
+    {
+        $this->assertSame(['/usr/bin/lp', '-d', "Caja O'Brien", '-o', 'raw'], CajonDineroMac::comando("Caja O'Brien"));
+        $this->assertSame("\x1B\x70\x00\x19\xFA", CajonDineroMac::pulso());
+        $this->assertSame(PHP_OS_FAMILY === 'Darwin', (new CajonDineroMac)->disponible());
+    }
+
+    public function test_el_binding_elige_el_cajon_segun_el_sistema(): void
+    {
+        $this->app->forgetInstance(CajonDinero::class);
+        (new \App\Providers\AppServiceProvider($this->app))->register();
+
+        $esperado = PHP_OS_FAMILY === 'Darwin' ? CajonDineroMac::class : CajonDineroWindows::class;
+        $this->assertInstanceOf($esperado, app(CajonDinero::class));
+    }
+
+    public function test_en_mac_una_impresora_inexistente_da_un_error_legible(): void
+    {
+        if (PHP_OS_FAMILY !== 'Darwin') {
+            $this->markTestSkipped('Solo Mac');
+        }
+
+        $error = (new CajonDineroMac)->abrir('Impresora que no existe '.uniqid());
+
+        $this->assertNotNull($error);
+        $this->assertStringContainsString('No se pudo abrir el cajón', $error);
     }
 
     public function test_en_windows_una_impresora_inexistente_da_un_error_legible(): void
