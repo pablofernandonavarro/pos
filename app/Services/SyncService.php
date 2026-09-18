@@ -970,6 +970,7 @@ class SyncService
                     'nombre' => $c['nombre'],
                     'rol' => $c['rol'],
                     'pin_hash' => $c['pin_hash'],
+                    'foto_url' => $c['foto_url'] ?? null,
                 ]);
             }
         });

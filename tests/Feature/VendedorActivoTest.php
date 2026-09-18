@@ -53,6 +53,23 @@ class VendedorActivoTest extends TestCase
         $this->assertSame('Beto', Configuracion::get('vendedor_activo_nombre'));
     }
 
+    public function test_el_indicador_muestra_la_foto_del_vendedor_o_sus_iniciales(): void
+    {
+        Cajero::find(2)->update(['nombre' => 'Ana María', 'foto_url' => 'https://manager.test/storage/usuarios/fotos/ana.jpg']);
+
+        Configuracion::set('vendedor_activo_id', '2');
+        Configuracion::set('vendedor_activo_nombre', 'Ana María');
+        Livewire::test(SesionVendedor::class)
+            ->assertSee('https://manager.test/storage/usuarios/fotos/ana.jpg')
+            ->assertSee('AM');
+
+        Configuracion::set('vendedor_activo_id', '1');
+        Configuracion::set('vendedor_activo_nombre', 'Beto');
+        Livewire::test(SesionVendedor::class)
+            ->assertDontSee('usuarios/fotos')
+            ->assertSee('Beto');
+    }
+
     public function test_login_con_pin_incorrecto_no_cambia_nada(): void
     {
         Configuracion::set('vendedor_activo_id', '2');

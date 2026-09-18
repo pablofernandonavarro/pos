@@ -302,7 +302,8 @@ class Etapa2Test extends TestCase
     public function test_sync_de_cajeros_reemplaza_la_lista(): void
     {
         Http::fake(['*/sync/cajeros' => Http::response(['data' => [
-            ['id' => 2, 'nombre' => 'Ana María', 'rol' => 'supervisor', 'pin_hash' => Hash::make('5555')],
+            ['id' => 2, 'nombre' => 'Ana María', 'rol' => 'supervisor', 'pin_hash' => Hash::make('5555'), 'foto_url' => 'https://manager.test/storage/usuarios/fotos/ana.jpg'],
+            // Un Manager anterior a las fotos no manda el campo.
             ['id' => 7, 'nombre' => 'Nuevo', 'rol' => 'cajero', 'pin_hash' => Hash::make('7777')],
         ]])]);
 
@@ -310,6 +311,8 @@ class Etapa2Test extends TestCase
 
         $this->assertEqualsCanonicalizing([2, 7], Cajero::pluck('id')->all());
         $this->assertSame('Ana María', Cajero::find(2)->nombre);
+        $this->assertSame('https://manager.test/storage/usuarios/fotos/ana.jpg', Cajero::find(2)->foto_url);
+        $this->assertNull(Cajero::find(7)->foto_url);
         app(AutorizacionService::class)->verificar(2, '5555', requiereSupervisor: true);
     }
 

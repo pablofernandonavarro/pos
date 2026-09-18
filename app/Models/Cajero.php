@@ -14,7 +14,7 @@ class Cajero extends Model
 
     public $incrementing = false;
 
-    protected $fillable = ['id', 'nombre', 'rol', 'pin_hash'];
+    protected $fillable = ['id', 'nombre', 'rol', 'pin_hash', 'foto_url'];
 
     protected $hidden = ['pin_hash'];
 

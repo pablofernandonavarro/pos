@@ -5,8 +5,18 @@
     {{-- Indicador en la barra de navegación --}}
     <div x-data="{ open: false }" @click.away="open = false" class="relative text-sm">
         @if($vendedorActivoNombre)
-            <button @click="open = !open" type="button" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-300 hover:bg-slate-700 transition-colors">
-                <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+            <button @click="open = !open" type="button" class="flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-full text-slate-300 hover:bg-slate-700 transition-colors">
+                <span x-data="{ fotoFallo: false }" class="relative w-8 h-8 shrink-0">
+                    @if($vendedorActivoFotoUrl)
+                        <img src="{{ $vendedorActivoFotoUrl }}" alt="" x-show="!fotoFallo" x-on:error="fotoFallo = true"
+                             class="w-8 h-8 rounded-full object-cover ring-2 ring-slate-600">
+                    @endif
+                    <span @if($vendedorActivoFotoUrl) x-show="fotoFallo" x-cloak @endif
+                          class="w-8 h-8 rounded-full bg-blue-600 text-white text-xs font-semibold flex items-center justify-center ring-2 ring-slate-600">
+                        {{ collect(preg_split('/\s+/', trim($vendedorActivoNombre)))->take(2)->map(fn ($p) => mb_strtoupper(mb_substr($p, 0, 1)))->join('') }}
+                    </span>
+                    <span class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-500 ring-2 ring-slate-900"></span>
+                </span>
                 {{ $vendedorActivoNombre }}
             </button>
             <div x-show="open" x-cloak class="absolute right-0 top-full mt-1 w-40 bg-slate-800 border border-slate-700 rounded-lg shadow-lg py-1 z-50">

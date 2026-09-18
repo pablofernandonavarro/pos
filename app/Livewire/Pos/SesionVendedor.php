@@ -79,6 +79,7 @@ class SesionVendedor extends Component
 
         return view('livewire.pos.sesion-vendedor', [
             'vendedorActivoNombre' => $vendedorId !== null ? Configuracion::get('vendedor_activo_nombre') : null,
+            'vendedorActivoFotoUrl' => $vendedorId !== null ? Cajero::whereKey((int) $vendedorId)->value('foto_url') : null,
             // Sin turno abierto ya hay un bloqueo propio (Venta: "abrí la caja"), y sin
             // cajeros cargados no hay PIN de nadie que pedir (modo nombre libre): en
             // ninguno de los dos casos tiene sentido superponer este login encima.
