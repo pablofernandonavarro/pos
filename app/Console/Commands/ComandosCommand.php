@@ -81,6 +81,7 @@ class ComandosCommand extends Command
             'limpiar_cache' => $this->limpiarCache(),
             'recrear_acceso_directo' => $this->recrearAccesoDirecto(),
             'actualizar' => $this->actualizar(),
+            'limpiar_fallidos' => $this->limpiarFallidos(),
             default => throw new \RuntimeException("Orden desconocida: {$comando}"),
         };
     }
@@ -143,6 +144,30 @@ class ComandosCommand extends Command
         Artisan::call('optimize:clear');
 
         return 'Cachés limpiadas';
+    }
+
+    /**
+     * Borra la tabla `failed_jobs`. Un envío ahí ya agotó sus 3 reintentos: SaludCaja lo
+     * muestra como alerta en el Manager para siempre, aunque haya sido un tropiezo de una
+     * sola vez (por ejemplo, un `queue:work` que quedó con código viejo cargado en medio
+     * de una actualización).
+     *
+     * No hace falta reintentarlo con `queue:retry`: `SincronizarPendientes` no lleva
+     * ninguna venta ni movimiento serializado adentro, solo dispara "mandá lo que esté
+     * pendiente" (ver SincronizarPendientes::handle()). Lo que de verdad falta enviar
+     * sigue en sus propias tablas (`ventas.sincronizado = false`, etc.) y vuelve a salir
+     * solo con la próxima venta, el sync de cada 5 minutos, un "Sincronizar" manual o la
+     * orden "Reenviar pendientes". Borrar la fila fallida no pierde nada.
+     */
+    private function limpiarFallidos(): string
+    {
+        $cantidad = DB::table('failed_jobs')->count();
+
+        Artisan::call('queue:flush');
+
+        return $cantidad > 0
+            ? "Se borraron {$cantidad} envío(s) fallidos"
+            : 'No había envíos fallidos para borrar';
     }
 
     /**

@@ -8,8 +8,10 @@ use App\Services\EstadoCajaService;
 use App\Services\VentaService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class EstadoCajaTest extends TestCase
@@ -64,5 +66,60 @@ class EstadoCajaTest extends TestCase
         $this->artisan('pos:comandos')->assertSuccessful();
 
         Http::assertSent(fn (Request $r) => str_ends_with($r->url(), '/pos/comandos'));
+    }
+
+    public function test_la_orden_limpiar_fallidos_borra_la_tabla_failed_jobs(): void
+    {
+        DB::table('failed_jobs')->insert([
+            'uuid' => (string) Str::uuid(),
+            'connection' => 'database',
+            'queue' => 'default',
+            'payload' => '{}',
+            'exception' => 'RuntimeException: algo falló',
+            'failed_at' => now(),
+        ]);
+
+        $reportado = null;
+
+        Http::fake([
+            'manager.fake/api/v1/pos/estado' => Http::response(['ok' => true]),
+            'manager.fake/api/v1/pos/comandos' => Http::response(['data' => [
+                ['id' => 1, 'comando' => 'limpiar_fallidos'],
+            ]]),
+            'manager.fake/api/v1/pos/comandos/*' => Http::response(['ok' => true]),
+        ]);
+
+        $this->artisan('pos:comandos')->assertSuccessful();
+
+        $this->assertSame(0, DB::table('failed_jobs')->count());
+
+        Http::assertSent(function (Request $r) {
+            if (! str_contains($r->url(), '/pos/comandos/')) {
+                return false;
+            }
+
+            return $r['exito'] === true && str_contains($r['resultado'], '1 envío(s) fallidos');
+        });
+    }
+
+    public function test_la_orden_limpiar_fallidos_no_falla_si_no_hay_nada_para_borrar(): void
+    {
+        Http::fake([
+            'manager.fake/api/v1/pos/estado' => Http::response(['ok' => true]),
+            'manager.fake/api/v1/pos/comandos' => Http::response(['data' => [
+                ['id' => 1, 'comando' => 'limpiar_fallidos'],
+            ]]),
+            'manager.fake/api/v1/pos/comandos/*' => Http::response(['ok' => true]),
+        ]);
+
+        $this->artisan('pos:comandos')->assertSuccessful();
+
+        Http::assertSent(function (Request $r) {
+            if (! str_contains($r->url(), '/pos/comandos/')) {
+                return false;
+            }
+
+            return $r['exito'] === true && str_contains($r['resultado'], 'No había envíos fallidos');
+        });
     }
 }
