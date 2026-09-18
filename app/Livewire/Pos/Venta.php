@@ -17,6 +17,7 @@ use App\Services\CajonService;
 use App\Services\CuentaCorrienteService;
 use App\Services\FacturacionService;
 use App\Services\TicketService;
+use App\Services\TilesVentaService;
 use App\Services\VentaService;
 use App\Support\Dinero;
 use Livewire\Attributes\Locked;
@@ -62,6 +63,9 @@ class Venta extends Component
     public ?int $clienteId = null;
 
     public array $resultadosBusqueda = [];
+
+    /** Grupo elegido en un tile de categoría; null muestra la grilla de tiles. */
+    public ?string $categoriaSeleccionada = null;
 
     // --- Selector de variante (color + talle) ---
     #[Locked]
@@ -171,6 +175,16 @@ class Venta extends Component
         $this->resultadosBusqueda = mb_strlen(trim($this->busqueda)) >= 2
             ? $this->consultarProductos($this->busqueda, 10)
             : [];
+    }
+
+    public function verCategoria(string $grupo): void
+    {
+        $this->categoriaSeleccionada = $grupo;
+    }
+
+    public function cerrarCategoria(): void
+    {
+        $this->categoriaSeleccionada = null;
     }
 
     /**
@@ -769,8 +783,20 @@ class Venta extends Component
         $selector = $this->selectorModelo ? $this->datosSelector($this->selectorModelo) : null;
         $disponible = $cliente?->cuenta_corriente ? $cuentas->disponibleCentavos($cliente) : null;
 
+        // Solo hace falta calcular esto cuando el panel de búsqueda está visible: en el
+        // modal de cobro no se ve, y son consultas de más sobre ventas/catálogo.
+        $tiles = app(TilesVentaService::class);
+        $tilesCategorias = ! $this->cobrando && $this->busqueda === '' ? $tiles->categorias() : collect();
+        $tilesMasVendidos = ! $this->cobrando && $this->busqueda === '' && ! $this->categoriaSeleccionada
+            ? $tiles->masVendidos(listaId: $this->listaId) : [];
+        $productosCategoria = $this->categoriaSeleccionada
+            ? $tiles->productosDeCategoria($this->categoriaSeleccionada, $this->listaId) : [];
+
         return view('livewire.pos.venta', [
             'turno' => $turno,
+            'tilesCategorias' => $tilesCategorias,
+            'tilesMasVendidos' => $tilesMasVendidos,
+            'productosCategoria' => $productosCategoria,
             'cajeros' => $turno ? collect() : Cajero::orderBy('nombre')->get(['id', 'nombre', 'rol']),
             'supervisores' => $this->cobrando ? Cajero::where('rol', 'supervisor')->orderBy('nombre')->get(['id', 'nombre']) : collect(),
             'limiteDescuento' => VentaService::limiteDescuentoSinAutorizacion(),

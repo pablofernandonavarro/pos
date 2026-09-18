@@ -173,6 +173,84 @@
             </div>
         @endif
 
+        @if($categoriaSeleccionada)
+            {{-- Productos de la categoría elegida --}}
+            <div class="mb-6">
+                <div class="flex items-center gap-3 mb-3">
+                    <button type="button" wire:click="cerrarCategoria" class="text-slate-400 hover:text-white">← Volver</button>
+                    <h3 class="text-lg font-bold text-white">{{ $categoriaSeleccionada }}</h3>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 overflow-y-auto">
+                    @forelse($productosCategoria as $p)
+                        <button type="button" wire:key="cat-prod-{{ $p['id'] }}" wire:click="agregarAlCarrito({{ $p['id'] }})"
+                                class="flex flex-col text-left bg-slate-800 border border-slate-700 rounded-xl overflow-hidden hover:border-blue-500 transition-colors">
+                            <div class="aspect-square bg-slate-700 flex items-center justify-center overflow-hidden">
+                                @if($p['imagen'])
+                                    <img src="{{ $p['imagen'] }}" alt="{{ $p['nombre'] }}" class="w-full h-full object-cover">
+                                @else
+                                    <svg class="w-8 h-8 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                                    </svg>
+                                @endif
+                            </div>
+                            <div class="p-2.5">
+                                <p class="text-sm text-white font-medium line-clamp-2">{{ $p['nombre'] }}</p>
+                                <p class="text-sm font-bold text-green-400 mt-1">{{ Dinero::formato($p['precio']) }}</p>
+                            </div>
+                        </button>
+                    @empty
+                        <p class="col-span-full text-center text-slate-500 py-10">No hay productos vendibles en esta categoría.</p>
+                    @endforelse
+                </div>
+            </div>
+        @elseif(! $selector && empty($resultadosBusqueda) && $busqueda === '' && ($tilesCategorias->isNotEmpty() || ! empty($tilesMasVendidos)))
+            {{-- Accesos rápidos: categorías con más productos y lo más vendido, para no
+                 depender solo de escribir en el buscador. Se generan solos desde el
+                 catálogo y el historial de ventas, sin pantalla de configuración. --}}
+            <div class="mb-6 space-y-4">
+                @if($tilesCategorias->isNotEmpty())
+                    <div>
+                        <p class="text-xs font-semibold text-slate-500 uppercase mb-2">Categorías</p>
+                        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            @foreach($tilesCategorias as $cat)
+                                <button type="button" wire:key="tile-cat-{{ $cat->grupo }}" wire:click="verCategoria(@js($cat->grupo))"
+                                        class="p-4 rounded-xl bg-slate-800 border border-slate-700 hover:border-blue-500 text-left transition-colors">
+                                    <p class="text-white font-semibold">{{ $cat->grupo }}</p>
+                                    <p class="text-xs text-slate-400 mt-0.5">{{ $cat->total }} producto(s)</p>
+                                </button>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
+                @if(! empty($tilesMasVendidos))
+                    <div>
+                        <p class="text-xs font-semibold text-slate-500 uppercase mb-2">Más vendidos</p>
+                        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            @foreach($tilesMasVendidos as $p)
+                                <button type="button" wire:key="tile-prod-{{ $p['id'] }}" wire:click="agregarAlCarrito({{ $p['id'] }})"
+                                        class="flex items-center gap-3 p-3 rounded-xl bg-slate-800 border border-slate-700 hover:border-blue-500 text-left transition-colors">
+                                    <div class="w-10 h-10 shrink-0 bg-slate-700 rounded-lg flex items-center justify-center overflow-hidden">
+                                        @if($p['imagen'])
+                                            <img src="{{ $p['imagen'] }}" alt="" class="w-full h-full object-cover">
+                                        @else
+                                            <svg class="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path>
+                                            </svg>
+                                        @endif
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <p class="text-sm text-white font-medium truncate">{{ $p['nombre'] }}</p>
+                                        <p class="text-sm font-bold text-green-400">{{ Dinero::formato($p['precio']) }}</p>
+                                    </div>
+                                </button>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+            </div>
+        @endif
+
         @if($turno)
             <div class="mb-4 flex items-center gap-3 text-sm text-slate-400">
                 <span class="w-2 h-2 rounded-full bg-green-500"></span>
