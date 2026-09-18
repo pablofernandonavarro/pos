@@ -9,27 +9,28 @@
     @livewireStyles
 </head>
 <body class="antialiased bg-slate-900 text-white">
-    <div class="flex flex-col h-screen">
+    <div class="flex flex-col h-screen" x-data="{ navAbierta: false }">
         <!-- Header -->
-        <header class="bg-slate-800 border-b border-slate-700 px-6 py-4">
+        <header class="bg-slate-800 border-b border-slate-700 px-4 py-2.5">
             <div class="flex items-center justify-between">
-                <div class="flex items-center gap-6">
+                <div class="flex items-center gap-4 lg:gap-6">
                     <div class="flex items-center gap-2">
-                        <svg class="w-8 h-8 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg class="w-7 h-7 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"></path>
                         </svg>
-                        <h1 class="text-2xl font-bold text-white">POS System</h1>
+                        <h1 class="text-xl font-bold text-white">POS System</h1>
                     </div>
 
                     @if(\App\Models\Configuracion::isConfigured())
-                        <div class="text-sm text-slate-400">
+                        <div class="hidden lg:block text-sm text-slate-400">
                             <span class="font-semibold text-slate-300">{{ \App\Models\Configuracion::get('pdv_nombre') ?? 'POS' }}</span>
-                            <span class="mx-2">•</span>
-                            <span>{{ \App\Models\Configuracion::get('sucursal_nombre') ?? 'Sin configurar' }}</span>
+                            <span class="mx-2 hidden xl:inline">•</span>
+                            <span class="hidden xl:inline">{{ \App\Models\Configuracion::get('sucursal_nombre') ?? 'Sin configurar' }}</span>
                         </div>
 
-                        <!-- Navegación -->
-                        <nav class="flex items-center gap-2">
+                        {{-- Navegación de escritorio: los 3 destinos de uso diario sueltos, el
+                             resto agrupado en "Inventario" para no pesar todos igual. --}}
+                        <nav class="hidden lg:flex items-center gap-2">
                             <a href="{{ route('pos.venta') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.venta') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
                                 Venta
                             </a>
@@ -39,15 +40,12 @@
                             <a href="{{ route('pos.caja') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.caja*') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
                                 Caja
                             </a>
-                            <a href="{{ route('pos.productos') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.productos') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
-                                Productos
-                            </a>
-                            <a href="{{ route('pos.stock') }}" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors {{ request()->routeIs('pos.stock') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
-                                Stock
-                            </a>
                             <div x-data="{ open: false }" @click.away="open = false" class="relative">
-                                <button @click="open = !open" type="button" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 {{ request()->routeIs('pos.remitos*') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
-                                    Remitos
+                                <button @click="open = !open" type="button" class="px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-1.5 {{ request()->routeIs('pos.productos', 'pos.stock', 'pos.remitos*') ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-700' }}">
+                                    Inventario
+                                    @if(\App\Models\RemitoEntrante::count() > 0)
+                                        <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                                    @endif
                                     <svg class="w-3.5 h-3.5 transition-transform" :class="{ 'rotate-180': open }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
                                     </svg>
@@ -55,6 +53,13 @@
 
                                 <div x-show="open" x-cloak @click="open = false"
                                      class="absolute left-0 top-full mt-1 w-52 bg-slate-800 border border-slate-700 rounded-lg shadow-lg py-1 z-50">
+                                    <a href="{{ route('pos.productos') }}" class="block px-4 py-2 text-sm transition-colors {{ request()->routeIs('pos.productos') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700' }}">
+                                        Productos
+                                    </a>
+                                    <a href="{{ route('pos.stock') }}" class="block px-4 py-2 text-sm transition-colors {{ request()->routeIs('pos.stock') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700' }}">
+                                        Stock
+                                    </a>
+                                    <hr class="my-1 border-slate-700">
                                     <a href="{{ route('pos.remitos') }}" class="block px-4 py-2 text-sm transition-colors {{ request()->routeIs('pos.remitos') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700' }}">
                                         📥 Remitos por recibir
                                     </a>
@@ -70,7 +75,7 @@
                     @endif
                 </div>
 
-                <div class="flex items-center gap-4">
+                <div class="flex items-center gap-2 lg:gap-4">
                     @if (\App\Models\Configuracion::isConfigured())
                         @livewire('pos.sesion-vendedor')
                     @endif
@@ -80,8 +85,8 @@
                         @livewire('pos.estado-sync')
                     @endif
 
-                    <!-- Reloj -->
-                    <div class="text-sm text-slate-400" x-data="{ time: '' }" x-init="setInterval(() => time = new Date().toLocaleTimeString('es-AR', { hour12: false }), 1000)" x-text="time"></div>
+                    <!-- Reloj: cede espacio primero, el ticket ya imprime su propia hora -->
+                    <div class="hidden xl:block text-sm text-slate-400" x-data="{ time: '' }" x-init="setInterval(() => time = new Date().toLocaleTimeString('es-AR', { hour12: false }), 1000)" x-text="time"></div>
 
                     <!-- Menú de opciones -->
                     <div x-data="{ open: false }" class="relative">
@@ -141,8 +146,33 @@
                             </div>
                         </div>
                     </div>
+
+                    @if(\App\Models\Configuracion::isConfigured())
+                        {{-- Hamburguesa: el header no tenía ningún tratamiento mobile antes. --}}
+                        <button @click="navAbierta = ! navAbierta" type="button" class="lg:hidden p-2 rounded-lg hover:bg-slate-700 transition-colors">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path x-show="!navAbierta" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                                <path x-show="navAbierta" x-cloak stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    @endif
                 </div>
             </div>
+
+            @if(\App\Models\Configuracion::isConfigured())
+                {{-- Nav mobile: mismos destinos que el dropdown de escritorio, en columna con
+                     filas de 44px (tamaño táctil). --}}
+                <nav x-show="navAbierta" x-cloak @click="navAbierta = false" x-transition class="lg:hidden mt-3 pb-1 flex flex-col gap-1">
+                    <a href="{{ route('pos.venta') }}" class="flex items-center px-4 h-11 rounded-lg text-sm font-medium {{ request()->routeIs('pos.venta') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700' }}">Venta</a>
+                    <a href="{{ route('pos.ventas') }}" class="flex items-center px-4 h-11 rounded-lg text-sm font-medium {{ request()->routeIs('pos.ventas') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700' }}">Ventas</a>
+                    <a href="{{ route('pos.caja') }}" class="flex items-center px-4 h-11 rounded-lg text-sm font-medium {{ request()->routeIs('pos.caja*') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700' }}">Caja</a>
+                    <a href="{{ route('pos.productos') }}" class="flex items-center px-4 h-11 rounded-lg text-sm font-medium {{ request()->routeIs('pos.productos') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700' }}">Productos</a>
+                    <a href="{{ route('pos.stock') }}" class="flex items-center px-4 h-11 rounded-lg text-sm font-medium {{ request()->routeIs('pos.stock') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700' }}">Stock</a>
+                    <a href="{{ route('pos.remitos') }}" class="flex items-center px-4 h-11 rounded-lg text-sm font-medium {{ request()->routeIs('pos.remitos') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700' }}">📥 Remitos por recibir</a>
+                    <a href="{{ route('pos.remitos.nuevo') }}" class="flex items-center px-4 h-11 rounded-lg text-sm font-medium {{ request()->routeIs('pos.remitos.nuevo') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700' }}">➕ Nuevo remito</a>
+                    <a href="{{ route('pos.remitos.enviados') }}" class="flex items-center px-4 h-11 rounded-lg text-sm font-medium {{ request()->routeIs('pos.remitos.enviados') ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-700' }}">📤 Remitos enviados</a>
+                </nav>
+            @endif
         </header>
 
         <!-- Main Content -->
