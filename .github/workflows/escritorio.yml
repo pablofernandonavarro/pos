@@ -220,13 +220,53 @@ jobs:
           grep -q "^NATIVEPHP_APP_VERSION=${VERSION}\s*$" "$ENV_APP" || { echo "::error::El .env compilado no tiene NATIVEPHP_APP_VERSION=${VERSION}"; exit 1; }
           echo OK
 
-      # En Apple Silicon un .app sin firma no arranca. Sin cuenta de Apple alcanza la firma
-      # ad-hoc (identidad "-"); si electron-builder no la dejó sellada, se firma acá.
-      - name: Firma ad-hoc
+      # Abre la app ~30 s y verifica que siga viva. Sin esto, un .app que macOS mata al
+      # arrancar (firma, librerías) se publicaba igual: los tests de PHP no lo detectan.
+      - name: Preparar prueba de arranque
         run: |
-          codesign --verify --deep --strict "$APP" 2>/dev/null || codesign --force --deep --sign - "$APP"
+          cat > /tmp/probar-app.sh <<'EOF'
+          #!/usr/bin/env bash
+          APP="$1"
+          EXE="$APP/Contents/MacOS/$(ls "$APP/Contents/MacOS" | head -1)"
+          rm -f ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null
+          "$EXE" > /tmp/app.log 2>&1 &
+          PID=$!
+          sleep 30
+          if kill -0 "$PID" 2>/dev/null; then
+            echo "La app sigue abierta a los 30 s"
+            kill "$PID"; sleep 2; pkill -f "$APP" || true
+            exit 0
+          fi
+          wait "$PID"; echo "La app se cerró al arrancar (código $?)"
+          tail -30 /tmp/app.log
+          for f in ~/Library/Logs/DiagnosticReports/*.ips; do
+            [ -f "$f" ] || continue
+            echo "== $f"; grep -E -A6 '"(procName|exception|termination|asi)"' "$f" | head -40
+          done
+          exit 1
+          EOF
+          chmod +x /tmp/probar-app.sh
+          echo "PHP dentro de la app:"; find "$APP" -type f -name 'php' -perm -u+x | head -3
+
+      # Firma tal como la deja electron-builder (con hardened runtime), solo para diagnóstico.
+      - name: Diagnóstico de la firma original
+        continue-on-error: true
+        run: |
+          codesign -dv "$APP" 2>&1 | grep -E 'Signature|flags'
+          /tmp/probar-app.sh "$APP"
+
+      # En Apple Silicon un .app sin firma no arranca, y sin cuenta de Apple la firma es ad-hoc
+      # (identidad "-"). electron-builder la firma con hardened runtime, que solo sirve para
+      # notarizar y que con firma ad-hoc hace que macOS no cargue el framework de Electron: la
+      # app se cierra al abrirla. Se vuelve a firmar ad-hoc, sin hardened runtime.
+      - name: Firma ad-hoc sin hardened runtime
+        run: |
+          codesign --force --deep --sign - "$APP"
           codesign --verify --deep --strict "$APP"
-          codesign -dv "$APP" 2>&1 | grep -E 'Identifier|Signature'
+          codesign -dv "$APP" 2>&1 | grep -E 'Identifier|Signature|flags'
+
+      - name: Probar que la app abre
+        run: /tmp/probar-app.sh "$APP"
 
       # ditto y no zip: el .app de Electron trae symlinks en sus frameworks y un zip común los
       # convierte en copias, y macOS dice que la app "está dañada".
