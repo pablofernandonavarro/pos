@@ -58,9 +58,14 @@ class SyncService
      * "database is locked") y ante un corte descartaba todo lo bajado. Cada paso queda
      * consistente por sí solo: productos confirma página por página y retoma donde quedó,
      * precios reemplaza la tabla en una transacción corta al final y el stock es idempotente.
+     *
+     * Sin límite de tiempo: desde la pantalla de configuración corre en un request web, y
+     * los 30 segundos de max_execution_time cortaban la descarga con un 500 a mitad de camino.
      */
     public function syncInicial(): array
     {
+        set_time_limit(0);
+
         $resultados = [
             'productos' => ['success' => false, 'cantidad' => 0],
             'precios' => ['success' => false, 'cantidad' => 0],

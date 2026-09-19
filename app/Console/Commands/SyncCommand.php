@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Configuracion;
 use App\Services\EscritorioService;
 use App\Services\FacturacionService;
 use App\Services\RemitosEntrantesService;
@@ -16,6 +17,10 @@ class SyncCommand extends Command
 
     public function handle(SyncService $syncService): int
     {
+        if (! Configuracion::isConfigured()) {
+            return self::SUCCESS;
+        }
+
         $stockOnly = $this->option('stock');
         $pullOnly = $this->option('pull');
         $pushOnly = $this->option('push');
