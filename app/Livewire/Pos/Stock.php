@@ -118,13 +118,16 @@ class Stock extends Component
 
         $productos = $query->orderBy('nombre')->paginate(15);
 
+        $inicioDelDiaLocal = now()->timezone(config('pos.zona_horaria'))->startOfDay()->utc();
+
         $stats = [
             'pendientes' => MovimientoStock::pendientes()->count(),
-            'total_hoy' => MovimientoStock::whereDate('fecha', today())->count(),
+            'total_hoy' => MovimientoStock::where('fecha', '>=', $inicioDelDiaLocal)->count(),
         ];
 
         $movimientosRecientes = MovimientoStock::with('producto')
             ->latest('fecha')
+            ->orderByDesc('id')
             ->limit(10)
             ->get();
 

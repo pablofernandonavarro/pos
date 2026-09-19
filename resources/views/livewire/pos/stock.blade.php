@@ -1,3 +1,7 @@
+@php
+    $zona = config('pos.zona_horaria');
+@endphp
+
 <div class="h-full flex flex-col bg-slate-900">
     <!-- Header -->
     <div class="p-4 bg-slate-800 border-b border-slate-700">
@@ -100,7 +104,7 @@
                                 <div class="flex items-start justify-between gap-2">
                                     <div class="flex-1 min-w-0">
                                         <p class="text-sm font-medium text-white truncate">{{ $movimiento->producto->nombre }}</p>
-                                        <p class="text-xs text-slate-400 mt-0.5">{{ $movimiento->fecha->format('d/m/Y H:i') }}</p>
+                                        <p class="text-xs text-slate-400 mt-0.5">{{ $movimiento->fecha->timezone($zona)->format('d/m/Y H:i') }}</p>
                                         @if($movimiento->referencia)
                                             <p class="text-xs text-slate-500 mt-0.5">{{ $movimiento->referencia }}</p>
                                         @endif

@@ -5,12 +5,15 @@ namespace Tests\Feature;
 use App\Jobs\SincronizarPendientes;
 use App\Livewire\Pos\Caja;
 use App\Livewire\Pos\EstadoSync;
+use App\Livewire\Pos\Stock as PantallaStock;
 use App\Livewire\Pos\Venta as PantallaVenta;
+use App\Models\MovimientoStock;
 use App\Models\PromocionBancaria;
 use App\Models\TurnoCaja;
 use App\Models\Venta;
 use App\Services\CajaService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 use Tests\TestCase;
@@ -184,5 +187,33 @@ class PantallasCajaTest extends TestCase
     {
         $this->get(route('pos.caja'))->assertOk()->assertSee('No hay caja abierta');
         $this->get(route('pos.venta'))->assertOk()->assertSee('La caja está cerrada');
+    }
+
+    public function test_los_movimientos_de_stock_se_muestran_y_se_cuentan_en_hora_argentina(): void
+    {
+        $this->travelTo(Carbon::parse('2026-09-19 12:00:00', 'America/Argentina/Buenos_Aires')->utc());
+        $producto = $this->producto();
+
+        MovimientoStock::create([
+            'product_id' => $producto->id,
+            'tipo' => 'venta',
+            'cantidad' => -1,
+            'referencia' => 'PDV01-000008',
+            'fecha' => '2026-09-19 02:00:00',
+        ]);
+        MovimientoStock::create([
+            'product_id' => $producto->id,
+            'tipo' => 'venta',
+            'cantidad' => -2,
+            'referencia' => 'PDV01-000009',
+            'fecha' => '2026-09-19 13:00:00',
+        ]);
+
+        Livewire::test(PantallaStock::class)
+            ->assertViewHas('stats', fn (array $stats): bool => $stats['total_hoy'] === 1)
+            ->assertSee('18/09/2026 23:00')
+            ->assertSee('19/09/2026 10:00')
+            ->assertDontSee('19/09/2026 02:00')
+            ->assertDontSee('19/09/2026 13:00');
     }
 }
