@@ -268,6 +268,12 @@ jobs:
       - name: Probar que la app abre
         run: /tmp/probar-app.sh "$APP"
 
+      # La prueba de arranque corre la app que se va a empaquetar. Si al arrancar escribe dentro
+      # del .app (pasó con route:cache en bootstrap/cache), la firma queda inválida y macOS la
+      # trata como dañada en la caja: se corta acá en vez de publicarla.
+      - name: La firma sigue válida después de abrirla
+        run: codesign --verify --deep --strict -vv "$APP"
+
       # ditto y no zip: el .app de Electron trae symlinks en sus frameworks y un zip común los
       # convierte en copias, y macOS dice que la app "está dañada".
       - name: Empaquetar
