@@ -170,14 +170,28 @@ class ManagerApiService
                 return ['success' => true, 'json' => $response->json() ?? []];
             }
 
-            return ['success' => false, 'status' => $response->status(), 'error' => $response->json('message', "Error al sincronizar {$recurso}")];
+            return $this->falloDePagina($recurso, $response->status(), $response->json('message', "Error al sincronizar {$recurso}"));
         } catch (RequestException $e) {
-            return ['success' => false, 'status' => $e->response->status(), 'error' => $e->response->json('message') ?? "Error al sincronizar {$recurso}"];
+            return $this->falloDePagina($recurso, $e->response->status(), $e->response->json('message') ?? "Error al sincronizar {$recurso}");
         } catch (\Exception $e) {
             Log::error("Error sincronizando {$recurso}", ['error' => $e->getMessage(), 'params' => $params]);
 
             return ['success' => false, 'error' => "Error de conexión al sincronizar {$recurso}"];
         }
+    }
+
+    /**
+     * Un error HTTP al bajar una página (401 por token revocado, 500, 502...) se devolvía sin
+     * dejar rastro: solo un corte de red llegaba al log, y una caja podía pasar horas sin bajar
+     * stock sin que hubiera forma de saber por qué.
+     *
+     * @return array{success: false, status: int, error: string}
+     */
+    private function falloDePagina(string $recurso, int $status, string $mensaje): array
+    {
+        Log::warning("Error sincronizando {$recurso}", ['status' => $status, 'error' => $mensaje]);
+
+        return ['success' => false, 'status' => $status, 'error' => $mensaje];
     }
 
     /**

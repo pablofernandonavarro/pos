@@ -6,6 +6,7 @@ use App\Models\Configuracion;
 use App\Models\Producto;
 use App\Models\Venta;
 use App\Services\CajaService;
+use App\Services\ManagerApiService;
 use App\Services\SyncService;
 use App\Services\VentaService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -13,6 +14,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
@@ -40,6 +42,37 @@ class SyncStockYCatalogoTest extends TestCase
         app(SyncService::class)->syncStock();
 
         $this->assertSame(3, $p->fresh()->stock, 'no puede "devolver" lo vendido offline');
+    }
+
+    public function test_un_error_http_al_bajar_stock_o_catalogo_queda_en_el_log(): void
+    {
+        Log::spy();
+        Http::fake([
+            '*/sync/stock*' => Http::response(['message' => 'Unauthenticated.'], 401),
+            '*/sync/productos*' => Http::response(['message' => 'Server Error'], 500),
+        ]);
+
+        $manager = app(ManagerApiService::class);
+
+        $this->assertSame(401, $manager->pagina('stock', ['limit' => 100])['status']);
+        $this->assertSame(500, $manager->pagina('productos', ['limit' => 100])['status']);
+
+        Log::shouldHaveReceived('warning')
+            ->with('Error sincronizando stock', ['status' => 401, 'error' => 'Unauthenticated.'])
+            ->once();
+        Log::shouldHaveReceived('warning')
+            ->with('Error sincronizando productos', ['status' => 500, 'error' => 'Server Error'])
+            ->once();
+    }
+
+    public function test_una_pagina_que_baja_bien_no_deja_nada_en_el_log(): void
+    {
+        Log::spy();
+        Http::fake(['*/sync/stock*' => Http::response(['data' => [], 'next_cursor' => null])]);
+
+        $this->assertTrue(app(ManagerApiService::class)->pagina('stock', ['limit' => 100])['success']);
+
+        Log::shouldNotHaveReceived('warning');
     }
 
     public function test_sin_conexion_el_pull_de_stock_no_toca_nada_ni_marca_contacto(): void

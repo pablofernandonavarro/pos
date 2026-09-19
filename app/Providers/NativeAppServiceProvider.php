@@ -2,7 +2,9 @@
 
 namespace App\Providers;
 
+use App\Support\VersionPos;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Log;
 use Native\Desktop\Contracts\ProvidesPhpIni;
 use Native\Desktop\Facades\Menu;
 use Native\Desktop\Facades\Window;
@@ -11,6 +13,11 @@ class NativeAppServiceProvider implements ProvidesPhpIni
 {
     public function boot(): void
     {
+        // Constancia de cada apertura: sin esto, un silencio de la caja (app cerrada, PC suspendida)
+        // no se distingue de un sync trabado. Va como warning porque el nivel de log de la
+        // compilación de escritorio puede descartar info.
+        Log::warning('POS iniciado', ['version' => VersionPos::actual()]);
+
         // Al abrir la app no puede haber ninguna tarea programada corriendo: si quedó un
         // candado de withoutOverlapping es de un cierre a mitad de un sync (apagar la PC,
         // actualizar la app) y sin esto frenaba esa tarea hasta que venciera.
